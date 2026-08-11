@@ -58,6 +58,12 @@ DEFAULT_VISION_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_VISION_MODEL = "glm-4v-flash"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGES_PER_REQUEST = 3
+REALTIME_UNSUPPORTED_PATHS = ("/v1/live", "/v1/realtime")
+REALTIME_UNSUPPORTED_MESSAGE = (
+    "Realtime voice (/v1/live) is not supported by the configured upstream. "
+    "DeepSeek does not provide a realtime voice API, and Codex voice uses "
+    "OpenAI's GPT-Live channel. 请改用文字输入；如需语音，请切换到支持实时语音的服务商。"
+)
 TEST_PNG_B64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
@@ -759,12 +765,21 @@ def _upstream_request(
     raise RuntimeError(f"upstream unreachable after {retries} attempts: {last_error}")
 
 
+def blocked_realtime_path(path: str) -> bool:
+    """Return True when a Codex realtime voice request must not reach the upstream."""
+    clean = path.split("?", 1)[0]
+    return clean.startswith(REALTIME_UNSUPPORTED_PATHS)
+
+
 class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def _forward(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
+        if blocked_realtime_path(self.path):
+            self._reject_realtime_voice()
+            return
         new_body, _ = (
             rewrite_body(
                 body,
@@ -828,6 +843,30 @@ class ProxyHandler(BaseHTTPRequestHandler):
         finally:
             response.close()
             conn.close()
+
+    def _reject_realtime_voice(self) -> None:
+        logger = getattr(self.server, "logger", None)
+        upstream = getattr(self.server, "upstream", "?")
+        if logger:
+            logger.write(
+                f"realtime voice request blocked: {self.command} {self.path} "
+                f"(upstream {upstream} has no realtime transport)"
+            )
+        payload = json.dumps(
+            {
+                "error": {
+                    "message": REALTIME_UNSUPPORTED_MESSAGE,
+                    "type": "unsupported_realtime_voice",
+                    "code": "realtime_voice_unsupported",
+                }
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        self.send_response(501)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     do_POST = _forward
     do_GET = _forward

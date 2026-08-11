@@ -198,6 +198,7 @@ python -m unittest discover -s tests -v
 - **Agent 能调用 Codex 内置的 `view_image` 吗？** 粘贴图片会正常走代理。但内置 `view_image` 工具在当前桌面版有限制：客户端会在图片到达代理之前把它替换成 `[Unsupported Image]`。需要看本地文件时请用 `agent-vision see <图片路径>`（或 `agent-vision see --latest` 恢复最近粘贴的图片）。
 - **可以用付费服务吗？** 可以。在 setup 里选 Quality 或 Custom，或者直接改 `.env` / `providers.json`。
 - **视觉 API 挂了会怎样？** 重试后仍失败时，代理会把图片替换成明确的失败标记（`[image vision conversion failed: <原因>]`），不再透传原图，Agent 可以请用户重新粘贴。失败原因会写入 `~/.agent-vision/logs/proxy.log`。
+- **点语音聊天报错（`404 /v1/live`、`Voice chat took too long to start` 等）？** 这是预期限制，不是代理故障。Codex 实时语音走 OpenAI GPT-Live 专用通道（`/v1/live`），DeepSeek 不提供该能力；代理现在会拦截 `/v1/live` 并返回明确提示，同时写入 `~/.agent-vision/logs/proxy.log`，不再转发给 DeepSeek 造成误导性报错。请使用文字输入；如需语音，请把 Codex 主模型切换到支持 OpenAI GPT-Live 实时语音的服务商。
 - **部署后 Codex 显示 `502 Bad Gateway` 或 Windows 提示“无网络”？** 那是代理在如实上报上游瞬时 DNS/网络失败；agent-vision 不会修改你的网络设置，代理现在会自动重试上游。先运行 `agent-vision doctor` 确认全绿，再重试即可。
 - **重启电脑后 Codex 提示 `stream disconnected`？** 本地代理还没启动。先运行 `agent-vision start`，或执行一次 `agent-vision autostart --enable`，让代理登录时自动启动并由看门狗（默认 10 秒）在 19100 未监听时自动拉起。如果已把 `base_url` 改回上游地址，请重跑 `agent-vision setup` 恢复视觉桥。
 - **图片隐私如何？** 图片只会发送到你配置的服务商（默认智谱）。发送敏感截图前请先查看对方隐私政策。`see --latest` 只从 Codex 会话文件提取图片字节，不读取或发送对话文本。`.env` 已被 `.gitignore` 排除，不要提交或分享。

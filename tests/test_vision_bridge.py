@@ -1,7 +1,9 @@
 import base64
+import http.client
 import io
 import json
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -220,6 +222,52 @@ class RewriteTests(unittest.TestCase):
         new_body, replaced = vb.rewrite_body(body)
         self.assertEqual(replaced, 0)
         self.assertEqual(new_body, body)
+
+
+class RealtimeVoiceBlockTests(unittest.TestCase):
+    def test_realtime_paths_are_blocked(self):
+        self.assertTrue(vb.blocked_realtime_path("/v1/live"))
+        self.assertTrue(vb.blocked_realtime_path("/v1/live?model=gpt-live-1"))
+        self.assertTrue(vb.blocked_realtime_path("/v1/live/rtc_u0_abc"))
+        self.assertTrue(vb.blocked_realtime_path("/v1/realtime"))
+        self.assertTrue(vb.blocked_realtime_path("/v1/realtime/calls"))
+        self.assertFalse(vb.blocked_realtime_path("/v1/responses"))
+        self.assertFalse(vb.blocked_realtime_path("/v1/chat/completions"))
+        self.assertFalse(vb.blocked_realtime_path("/"))
+
+    def test_proxy_rejects_live_without_upstream_call(self):
+        logger = mock.Mock()
+        server = vb.ThreadingHTTPServer(("127.0.0.1", 0), vb.ProxyHandler)
+        server.upstream = "https://api.deepseek.com"
+        server.max_images = 3
+        server.model = "glm-4v-flash"
+        server.base_url = "https://open.bigmodel.cn/api/paas/v4"
+        server.logger = logger
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                conn.request(
+                    "POST",
+                    "/v1/live",
+                    body=b"{}",
+                    headers={"Content-Type": "application/json"},
+                )
+                response = conn.getresponse()
+                payload = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(response.status, 501)
+                self.assertEqual(payload["error"]["code"], "realtime_voice_unsupported")
+                self.assertIn("realtime voice", payload["error"]["message"])
+            finally:
+                conn.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+        logger.write.assert_called()
+        written = [call.args[0] for call in logger.write.call_args_list]
+        self.assertTrue(any("realtime voice request blocked" in line for line in written))
 
 
 class CacheTests(unittest.TestCase):
