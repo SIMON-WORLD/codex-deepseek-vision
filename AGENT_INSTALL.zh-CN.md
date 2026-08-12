@@ -12,6 +12,17 @@
 帮我安装并配置 agent-vision。请阅读 AGENT_INSTALL.zh-CN.md 并从头到尾执行。默认使用智谱免费服务，除非我指定其他服务商。
 ```
 
+想指定服务商或模型时，把它们和 Key 放进同一句话即可，例如：
+
+```text
+帮我安装并配置 agent-vision，用 RightAPI 的 gpt-5.6-sol 识图，我的 API Key 是 <你的Key>。请阅读 AGENT_INSTALL.zh-CN.md 并从头到尾执行。
+```
+
+常见自定义服务商参考：
+
+- RightAPI：`base_url=https://www.rightapi.ai/codex/v1`，可用模型如 `gpt-5.6-sol`、`gpt-5.5`、`gpt-5.4-mini`（个别模型名对某些 Key 返回 503，需以 `agent-vision status --test` 实测为准）。
+- 其他 OpenAI 兼容接口：按服务商文档提供 `base_url` 与视觉模型名即可。
+
 ## Agent 执行清单
 
 1. 从 PyPI 安装（最简单）；如果 PyPI 不可达，再克隆仓库从源码安装：
