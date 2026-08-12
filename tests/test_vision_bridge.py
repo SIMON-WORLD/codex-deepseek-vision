@@ -26,6 +26,12 @@ def data_url() -> str:
 
 
 class RewriteTests(unittest.TestCase):
+    def setUp(self):
+        vb._CACHE.clear()
+
+    def tearDown(self):
+        vb._CACHE.clear()
+
     def test_chat_completions_image_replaced(self):
         body = json.dumps(
             {
@@ -147,6 +153,76 @@ class RewriteTests(unittest.TestCase):
         part = payload["input"][0]["content"][0]
         self.assertIn("image vision conversion failed", part["text"])
         self.assertTrue(any(k in part["text"] for k in ("empty image data", "invalid base64")))
+
+    def test_images_beyond_limit_replaced_with_marker_not_raw(self):
+        content = [{"type": "input_image", "image_url": data_url()} for _ in range(5)]
+        body = json.dumps({"input": [{"role": "user", "content": content}]}).encode("utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)):
+                with mock.patch.object(vb, "call_vision_model_batch", return_value=["图一", "图二", "图三"]):
+                    new_body, replaced = vb.rewrite_body(body, max_images=3)
+        self.assertEqual(replaced, 3)
+        payload = json.loads(new_body.decode("utf-8"))
+        parts = payload["input"][0]["content"]
+        self.assertEqual(len(parts), 5)
+        described = [p for p in parts if p.get("type") == "input_text" and "image described" in p["text"]]
+        omitted = [p for p in parts if p.get("type") == "input_text" and "image omitted" in p["text"]]
+        self.assertEqual(len(described), 3)
+        self.assertEqual(len(omitted), 2)
+        self.assertNotIn("image_url", json.dumps(payload))
+
+    def test_five_images_with_default_limit_all_replaced(self):
+        content = [{"type": "input_image", "image_url": data_url()} for _ in range(5)]
+        body = json.dumps({"input": [{"role": "user", "content": content}]}).encode("utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)):
+                with mock.patch.object(
+                    vb, "call_vision_model_batch", return_value=["图"] * 5
+                ):
+                    new_body, replaced = vb.rewrite_body(body)
+        self.assertEqual(replaced, 5)
+        self.assertNotIn("image_url", json.dumps(new_body.decode("utf-8")))
+
+    def test_batch_uses_single_call_and_parses_markers(self):
+        body = json.dumps(
+            {
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_image", "image_url": data_url()},
+                            {"type": "input_image", "image_url": data_url()},
+                        ],
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        calls = {"n": 0}
+
+        def fake_batch(images, prompt, **kwargs):
+            calls["n"] += 1
+            self.assertEqual(len(images), 2)
+            return ["红色", "绿色"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)):
+                with mock.patch.object(vb, "call_vision_model_batch", side_effect=fake_batch):
+                    new_body, replaced = vb.rewrite_body(body)
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(replaced, 2)
+        payload = json.loads(new_body.decode("utf-8"))
+        parts = payload["input"][0]["content"]
+        self.assertIn("红色", parts[0]["text"])
+        self.assertIn("绿色", parts[1]["text"])
+        self.assertNotIn("image_url", json.dumps(payload))
+
+    def test_parse_batch_descriptions(self):
+        parsed = vb._parse_batch_descriptions(
+            "[IMG1] 第一张\n更多细节[IMG2] 第二张[IMG3] 第三张", 3
+        )
+        self.assertEqual(parsed, ["第一张\n更多细节", "第二张", "第三张"])
+        parsed_missing = vb._parse_batch_descriptions("[IMG1] only", 2)
+        self.assertEqual(parsed_missing, ["only", None])
 
     def test_non_image_content_passes_through(self):
         body = json.dumps(
@@ -280,9 +356,11 @@ class CacheTests(unittest.TestCase):
             calls["n"] += 1
             return "cached description"
 
-        with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
-            first = vb.describe_bytes(data, "image/png", "是什么？")
-            second = vb.describe_bytes(data, "image/png", "是什么？")
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)):
+                with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
+                    first = vb.describe_bytes(data, "image/png", "是什么？")
+                    second = vb.describe_bytes(data, "image/png", "是什么？")
         self.assertEqual(first, "cached description")
         self.assertEqual(second, "cached description")
         self.assertEqual(calls["n"], 1)
@@ -297,9 +375,11 @@ class CacheTests(unittest.TestCase):
             calls["n"] += 1
             return "ok"
 
-        with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
-            vb.describe_bytes(data, "image/png", "问题一")
-            vb.describe_bytes(data, "image/png", "问题二")
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)):
+                with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
+                    vb.describe_bytes(data, "image/png", "问题一")
+                    vb.describe_bytes(data, "image/png", "问题二")
         self.assertEqual(calls["n"], 2)
         vb._CACHE.clear()
 

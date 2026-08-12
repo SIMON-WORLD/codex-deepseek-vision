@@ -25,6 +25,12 @@ def data_url() -> str:
 
 
 class RewriteTests(unittest.TestCase):
+    def setUp(self):
+        vb._CACHE.clear()
+
+    def tearDown(self):
+        vb._CACHE.clear()
+
     def test_chat_completions_image_replaced(self):
         body = json.dumps(
             {
@@ -103,11 +109,33 @@ class CacheTests(unittest.TestCase):
             calls["n"] += 1
             return "cached description"
 
-        with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
-            first = vb.describe_bytes(data, "image/png", "是什么？")
-            second = vb.describe_bytes(data, "image/png", "是什么？")
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)):
+                with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
+                    first = vb.describe_bytes(data, "image/png", "是什么？")
+                    second = vb.describe_bytes(data, "image/png", "是什么？")
         self.assertEqual(first, "cached description")
         self.assertEqual(second, "cached description")
+        self.assertEqual(calls["n"], 1)
+        vb._CACHE.clear()
+
+    def test_same_image_persists_across_memory_clear(self):
+        vb._CACHE.clear()
+        data = png_bytes()
+        calls = {"n": 0}
+
+        def fake_call(**kwargs):
+            calls["n"] += 1
+            return "disk cached description"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)):
+                with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
+                    first = vb.describe_bytes(data, "image/png", "是什么？")
+                    vb._CACHE.clear()
+                    second = vb.describe_bytes(data, "image/png", "是什么？")
+        self.assertEqual(first, "disk cached description")
+        self.assertEqual(second, "disk cached description")
         self.assertEqual(calls["n"], 1)
         vb._CACHE.clear()
 
@@ -120,9 +148,11 @@ class CacheTests(unittest.TestCase):
             calls["n"] += 1
             return "ok"
 
-        with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
-            vb.describe_bytes(data, "image/png", "问题一")
-            vb.describe_bytes(data, "image/png", "问题二")
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)):
+                with mock.patch.object(vb, "call_vision_model", side_effect=fake_call):
+                    vb.describe_bytes(data, "image/png", "问题一")
+                    vb.describe_bytes(data, "image/png", "问题二")
         self.assertEqual(calls["n"], 2)
         vb._CACHE.clear()
 

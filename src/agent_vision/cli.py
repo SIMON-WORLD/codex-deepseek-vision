@@ -57,7 +57,8 @@ ENV_FILE = config_home.env_file()
 DEFAULT_VISION_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_VISION_MODEL = "glm-4v-flash"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
-MAX_IMAGES_PER_REQUEST = 3
+MAX_IMAGES_PER_REQUEST = 100
+VISION_BATCH_SIZE = 10
 REALTIME_UNSUPPORTED_PATHS = ("/v1/live", "/v1/realtime")
 REALTIME_UNSUPPORTED_MESSAGE = (
     "Realtime voice (/v1/live) is not supported by the configured upstream. "
@@ -329,8 +330,127 @@ def call_vision_model(
     return str(content or "")
 
 
+def _parse_batch_descriptions(text: str, count: int) -> list[str | None]:
+    """Split a batch vision response by [IMG<n>] markers."""
+    out: list[str | None] = [None] * count
+    marker_re = re.compile(r"\[IMG(\d+)\]")
+    matches = list(marker_re.finditer(text or ""))
+    for index, match in enumerate(matches):
+        try:
+            image_index = int(match.group(1)) - 1
+        except ValueError:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        description = text[match.end():end].strip()
+        if 0 <= image_index < count and description and out[image_index] is None:
+            out[image_index] = description
+    return out
+
+
+def call_vision_model_batch(
+    images: list[tuple[str, str]],
+    prompt: str,
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    max_tokens: int = 2048,
+    temperature: float = 0.2,
+) -> list[str | None]:
+    """Send multiple images in one chat completion and return per-image descriptions."""
+    if not api_key:
+        raise RuntimeError(
+            "VISION_API_KEY is not configured; set it in .env or the environment"
+        )
+    base = base_url.rstrip("/")
+    url = base if base.endswith("/chat/completions") else base + "/chat/completions"
+    content: list[dict[str, object]] = [
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{mime};base64,{b64}",
+            },
+        }
+        for mime, b64 in images
+    ]
+    content.append(
+        {
+            "type": "text",
+            "text": (
+                f"{prompt}\n\nThere are {len(images)} images in the exact order given. "
+                "Describe every image separately. Start the description of each image with "
+                "the marker [IMG1], [IMG2], [IMG3], ... in order. Do not skip any image."
+            ),
+        }
+    )
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": content}],
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+    retryable = {429, 500, 502, 503, 504}
+    last_error = ""
+    result = None
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(request, timeout=240) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")[:500]
+            last_error = f"HTTP {error.code}: {detail}"
+            if error.code not in retryable:
+                break
+        except urllib.error.URLError as error:
+            last_error = f"network error: {error.reason}"
+        else:
+            if isinstance(result, dict) and result.get("error"):
+                last_error = "api error: " + json.dumps(result["error"], ensure_ascii=False)[:500]
+                if not str(result["error"]).strip():
+                    break
+            else:
+                break
+        if attempt < 3:
+            wait = 3 * (attempt + 1)
+            print(f"vision batch retry {attempt + 1} after {wait}s: {last_error}", file=sys.stderr)
+            time.sleep(wait)
+            continue
+        raise RuntimeError(last_error)
+    if result is None:
+        raise RuntimeError(last_error or "vision batch call failed")
+    try:
+        content = result["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError("vision model returned an unparsable batch result")
+    if isinstance(content, list):
+        text = "".join(
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+    else:
+        text = str(content or "")
+    return _parse_batch_descriptions(text, len(images))
+
+
 _CACHE: OrderedDict[str, str] = OrderedDict()
 _CACHE_MAX = 256
+_MEMORY_CACHE_LOCK = threading.Lock()
+_DISK_CACHE_DIR = config_home.agent_vision_home() / "cache"
+
+
+def _disk_cache_path(key: str) -> Path:
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return _DISK_CACHE_DIR / f"{digest}.json"
 
 
 def _cache_key(data: bytes, prompt: str, model: str) -> str:
@@ -339,17 +459,40 @@ def _cache_key(data: bytes, prompt: str, model: str) -> str:
 
 
 def _cache_get(key: str) -> str | None:
-    if key not in _CACHE:
-        return None
-    _CACHE.move_to_end(key)
-    return _CACHE[key]
+    with _MEMORY_CACHE_LOCK:
+        if key in _CACHE:
+            _CACHE.move_to_end(key)
+            return _CACHE[key]
+    path = _disk_cache_path(key)
+    try:
+        if path.exists():
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(value, str):
+                with _MEMORY_CACHE_LOCK:
+                    _CACHE[key] = value
+                    _CACHE.move_to_end(key)
+                    while len(_CACHE) > _CACHE_MAX:
+                        _CACHE.popitem(last=False)
+                return value
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def _cache_set(key: str, value: str) -> None:
-    _CACHE[key] = value
-    _CACHE.move_to_end(key)
-    while len(_CACHE) > _CACHE_MAX:
-        _CACHE.popitem(last=False)
+    with _MEMORY_CACHE_LOCK:
+        _CACHE[key] = value
+        _CACHE.move_to_end(key)
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
+    try:
+        _DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = _disk_cache_path(key)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
 
 
 def describe_bytes(
@@ -603,83 +746,183 @@ class _Rewrite:
         self.base_url = base_url
         self.log = log
         self.last_error: str | None = None
+        self.modified = False
 
     def describe_data_url(self, data_url: str, focus: str) -> str | None:
-        self.last_error = None
+        description, error = self._describe_data_url(data_url, focus)
+        self.last_error = error
+        return description
+
+    def _image_meta(self, data_url: str, focus: str) -> tuple[dict[str, object] | None, str]:
         match = DATA_URL_RE.match(data_url)
         if not match:
-            self.last_error = "unsupported image data URL format"
-            return None
+            return None, "unsupported image data URL format"
         mime, b64 = match.group(1), match.group(2)
         try:
             data = base64.b64decode(b64)
         except Exception as error:
-            self.last_error = f"invalid base64 image data: {error}"
-            return None
+            return None, f"invalid base64 image data: {error}"
         if not data:
-            self.last_error = "empty image data"
-            return None
+            return None, "empty image data"
         if len(data) > MAX_IMAGE_BYTES:
-            self.last_error = (
-                f"image exceeds {MAX_IMAGE_BYTES // (1024 * 1024)} MB limit"
-            )
-            return None
+            return None, f"image exceeds {MAX_IMAGE_BYTES // (1024 * 1024)} MB limit"
         prompt = DEFAULT_DESCRIBE_PROMPT
         if focus:
             prompt = (
                 f"The user's request is: {focus[:500]}\n\n"
                 + DEFAULT_DESCRIBE_PROMPT
             )
+        key = _cache_key(data, prompt, self.model or cfg("VISION_MODEL", DEFAULT_VISION_MODEL))
+        return {
+            "mime": mime,
+            "b64": b64,
+            "data": data,
+            "prompt": prompt,
+            "key": key,
+        }, ""
+
+    def _describe_data_url(self, data_url: str, focus: str) -> tuple[str | None, str]:
+        meta, error = self._image_meta(data_url, focus)
+        if error:
+            return None, error
         try:
-            return describe_bytes(
-                data,
-                mime,
-                prompt,
+            description = describe_bytes(
+                meta["data"],
+                meta["mime"],
+                meta["prompt"],
                 model=self.model,
                 base_url=self.base_url,
             )
+            return description, ""
         except Exception as error:
-            self.last_error = str(error) or error.__class__.__name__
-            print(f"vision rewrite failed: {self.last_error}", file=sys.stderr)
+            message = str(error) or error.__class__.__name__
+            print(f"vision rewrite failed: {message}", file=sys.stderr)
             if self.log:
-                self.log(f"vision rewrite failed: {self.last_error}")
-            return None
+                self.log(f"vision rewrite failed: {message}")
+            return None, message
 
     def rewrite_content(self, content: object, chat: bool) -> object:
         if not isinstance(content, list):
             return content
         focus = _focus_text(content)
-        out: list[object] = []
-        for part in content:
+        todo: list[tuple[int, str]] = []
+        for index, part in enumerate(content):
             url = image_url_from_part(part)
             if url and self.replaced < self.max_images:
-                description = self.describe_data_url(url, focus)
+                todo.append((index, url))
+                self.replaced += 1
+        results: dict[int, tuple[str | None, str]] = {}
+        uncached: list[tuple[int, dict[str, object]]] = []
+        for index, url in todo:
+            meta, error = self._image_meta(url, focus)
+            if error:
+                results[index] = (None, error)
+                continue
+            cached = _cache_get(meta["key"])
+            if cached is not None:
+                results[index] = (cached, "")
+            else:
+                uncached.append((index, meta))
+
+        if len(uncached) == 1:
+            index, meta = uncached[0]
+            try:
+                description = describe_bytes(
+                    meta["data"],
+                    meta["mime"],
+                    meta["prompt"],
+                    model=self.model,
+                    base_url=self.base_url,
+                )
+                _cache_set(meta["key"], description)
+                results[index] = (description, "")
+            except Exception as error:
+                message = str(error) or error.__class__.__name__
+                print(f"vision rewrite failed: {message}", file=sys.stderr)
+                if self.log:
+                    self.log(f"vision rewrite failed: {message}")
+                results[index] = (None, message)
+        elif uncached:
+            for start in range(0, len(uncached), VISION_BATCH_SIZE):
+                chunk = uncached[start : start + VISION_BATCH_SIZE]
+                descriptions: list[str | None] | None = None
+                try:
+                    descriptions = call_vision_model_batch(
+                        [(meta["mime"], meta["b64"]) for _, meta in chunk],
+                        str(chunk[0][1]["prompt"]),
+                        model=self.model,
+                        base_url=self.base_url,
+                    )
+                except Exception as error:
+                    message = str(error) or error.__class__.__name__
+                    print(f"vision batch failed: {message}", file=sys.stderr)
+                    if self.log:
+                        self.log(f"vision batch failed: {message}")
+                for offset, (index, meta) in enumerate(chunk):
+                    description = None
+                    if descriptions is not None and offset < len(descriptions):
+                        description = descriptions[offset]
+                    if description:
+                        _cache_set(meta["key"], description)
+                        results[index] = (description, "")
+                        continue
+                    try:
+                        fallback = describe_bytes(
+                            meta["data"],
+                            meta["mime"],
+                            meta["prompt"],
+                            model=self.model,
+                            base_url=self.base_url,
+                        )
+                        _cache_set(meta["key"], fallback)
+                        results[index] = (fallback, "")
+                    except Exception as error:
+                        message = str(error) or error.__class__.__name__
+                        print(f"vision rewrite failed: {message}", file=sys.stderr)
+                        if self.log:
+                            self.log(f"vision rewrite failed: {message}")
+                        results[index] = (None, message)
+        out: list[object] = []
+        for index, part in enumerate(content):
+            url = image_url_from_part(part)
+            if not url:
+                out.append(part)
+                continue
+            text_type = "text" if chat else "input_text"
+            if index in results:
+                self.modified = True
+                description, error = results[index]
                 if description:
-                    self.replaced += 1
-                    text_type = "text" if chat else "input_text"
                     out.append(
                         {
                             "type": text_type,
                             "text": "[image described by vision model] " + description.strip(),
                         }
                     )
-                    continue
-                self.replaced += 1
-                reason = self.last_error or "unknown vision conversion error"
-                if self.log:
-                    self.log(f"image conversion failed, replacing image with marker: {reason}")
-                text_type = "text" if chat else "input_text"
-                out.append(
-                    {
-                        "type": text_type,
-                        "text": (
-                            "[image vision conversion failed: " + reason + "] "
-                            "请用户重新粘贴图片或稍后重试。"
-                        ),
-                    }
-                )
+                else:
+                    reason = error or "unknown vision conversion error"
+                    if self.log:
+                        self.log(f"image conversion failed, replacing image with marker: {reason}")
+                    out.append(
+                        {
+                            "type": text_type,
+                            "text": (
+                                "[image vision conversion failed: " + reason + "] "
+                                "请用户重新粘贴图片或稍后重试。"
+                            ),
+                        }
+                    )
                 continue
-            out.append(part)
+            self.modified = True
+            out.append(
+                {
+                    "type": text_type,
+                    "text": (
+                        f"[image omitted: too many images in one request "
+                        f"(limit {self.max_images}); describe images separately]"
+                    ),
+                }
+            )
         return out
 
 
@@ -708,7 +951,7 @@ def rewrite_body(
     for message in payload.get("messages") or []:
         if isinstance(message, dict) and isinstance(message.get("content"), list):
             message["content"] = rewrite.rewrite_content(message["content"], chat=True)
-    if rewrite.replaced == 0:
+    if rewrite.replaced == 0 and not rewrite.modified:
         return body, 0
     return json.dumps(payload, ensure_ascii=False).encode("utf-8"), rewrite.replaced
 

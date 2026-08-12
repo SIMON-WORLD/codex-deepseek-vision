@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-deepseek-vision"
-version = "1.1.0"
+version = "1.2.0"
 description = "Codex vision bridge for DeepSeek V4 Flash: give text-only models image capability in Codex via a free local image-to-text proxy (GLM-4V-Flash or any OpenAI-compatible vision API)."
 readme = "README.md"
 requires-python = ">=3.9"
