@@ -9,13 +9,13 @@
 把下面这句话发给你的 Agent（Codex、OpenCode 等）：
 
 ```text
-帮我安装并配置 agent-vision。请阅读 AGENT_INSTALL.zh-CN.md 并从头到尾执行。默认使用智谱免费服务，除非我指定其他服务商。
+帮我从 https://github.com/SIMON-WORLD/codex-deepseek-vision 安装并配置 agent-vision（包名 codex-deepseek-vision）。请阅读该仓库的 AGENT_INSTALL.zh-CN.md 并从头到尾执行。默认使用智谱免费服务，除非我指定其他服务商。
 ```
 
 想指定服务商或模型时，把它们和 Key 放进同一句话即可，例如：
 
 ```text
-帮我安装并配置 agent-vision，用 RightAPI 的 gpt-5.6-sol 识图，我的 API Key 是 <你的Key>。请阅读 AGENT_INSTALL.zh-CN.md 并从头到尾执行。
+帮我从 https://github.com/SIMON-WORLD/codex-deepseek-vision 安装并配置 agent-vision（包名 codex-deepseek-vision），用 RightAPI 的 gpt-5.6-sol 识图，我的 API Key 是 <你的Key>。请阅读该仓库的 AGENT_INSTALL.zh-CN.md 并从头到尾执行。
 ```
 
 常见自定义服务商参考：
