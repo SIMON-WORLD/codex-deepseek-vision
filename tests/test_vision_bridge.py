@@ -28,9 +28,14 @@ def data_url() -> str:
 class RewriteTests(unittest.TestCase):
     def setUp(self):
         vb._CACHE.clear()
+        self._cache_tmp = tempfile.TemporaryDirectory()
+        self._cache_patch = mock.patch.object(vb, "_DISK_CACHE_DIR", Path(self._cache_tmp.name))
+        self._cache_patch.start()
 
     def tearDown(self):
         vb._CACHE.clear()
+        self._cache_patch.stop()
+        self._cache_tmp.cleanup()
 
     def test_chat_completions_image_replaced(self):
         body = json.dumps(
