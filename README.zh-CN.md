@@ -83,6 +83,26 @@ pip install .
 agent-vision setup
 ```
 
+如果 GitHub 不可达（部分网络环境常见），PyPI 就是正确兜底：每次发版都会与 GitHub tag 同步发布到 PyPI（当前最新 1.2.1）。国内可用清华镜像，但镜像同步有时滞后几小时到几天，装到旧版本就换回官方源：
+
+```bash
+pip install codex-deepseek-vision
+# 或
+pip install codex-deepseek-vision -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+也可以把下面这句话发给你的 AI Agent，它不需要访问 GitHub：
+
+```text
+帮我用 pip 安装 codex-deepseek-vision（官方 PyPI 慢就用清华镜像），然后执行：
+agent-vision setup --agent codex --provider custom --base-url https://www.rightapi.ai/codex/v1 --model gpt-5.6-sol --api-key <KEY> --yes
+agent-vision autostart --enable
+agent-vision doctor
+全部通过后提醒我重启 Codex。
+```
+
+默认免费智谱时，把 `--provider custom ...` 换成 `--provider free --yes` 即可。
+
 向导会自动检测你的 Agent，让你选择 Free / Quality / Custom 视觉服务，带备份写入配置，启动本地运行时，验证连接，最后输出健康状态。对 Codex 只改写当前活动 provider 的 `base_url`，`model_provider`、`model`、`wire_api` 和 API Key 都不动。
 
 也可以把下面这句话发给你的 AI Agent，让它替你完成：

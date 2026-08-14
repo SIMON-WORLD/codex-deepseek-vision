@@ -12,12 +12,37 @@ Paste this into your agent (Codex, OpenCode, etc.):
 Set up agent-vision for me. Read AGENT_INSTALL.md and follow it end to end. Use the free Zhipu provider unless I choose another one.
 ```
 
+## If GitHub is unreachable
+
+- Install from PyPI instead. Every release is published to PyPI at the same time as the GitHub tag (currently 1.2.1), so GitHub is not required. If official PyPI is slow, use the Tsinghua mirror; note that mirrors can lag official PyPI by a few hours to a few days, so switch back if you get an older version.
+
+  ```bash
+  pip install codex-deepseek-vision
+  # or
+  pip install codex-deepseek-vision -i https://pypi.tuna.tsinghua.edu.cn/simple
+  ```
+
+- A user with Python installed can also paste this into their agent; it does not require GitHub:
+
+  ```text
+  Install codex-deepseek-vision with pip (use the Tsinghua mirror if PyPI is slow), then run:
+  agent-vision setup --agent codex --provider custom --base-url https://www.rightapi.ai/codex/v1 --model gpt-5.6-sol --api-key <KEY> --yes
+  agent-vision autostart --enable
+  agent-vision doctor
+  Tell me when I need to restart Codex.
+  ```
+
+  For the free Zhipu provider, replace the custom provider flags with `--provider free --yes`.
+- GitHub is only required when you want code that has not been released to PyPI yet.
+
 ## Checklist for the agent
 
-1. Install the package from PyPI (simplest), or clone the repository and install from source when PyPI is unreachable:
+1. Install the package from PyPI (simplest, recommended), or clone the repository and install from source when PyPI is unreachable:
 
    ```bash
    pip install codex-deepseek-vision
+   # or
+   pip install codex-deepseek-vision -i https://pypi.tuna.tsinghua.edu.cn/simple
    # or
    git clone https://github.com/SIMON-WORLD/codex-deepseek-vision.git
    cd codex-deepseek-vision
@@ -26,15 +51,15 @@ Set up agent-vision for me. Read AGENT_INSTALL.md and follow it end to end. Use 
 
    Keep all writes inside the project unless a step below explicitly requires a backed-up agent config change.
 
-3. Ask the user which vision provider they want: `zhipu` (free), `dashscope`, `openai`, `gemini`, `groq`, `siliconflow`, `openrouter`, or a custom OpenAI-compatible endpoint. Ask the user to provide the matching API key, or let them paste it into the user config directory's `.env` themselves (`~/.agent-vision/.env`, or `%USERPROFILE%\.agent-vision\.env` on Windows).
-4. Run the guided setup:
+2. Ask the user which vision provider they want: `zhipu` (free), `dashscope`, `openai`, `gemini`, `groq`, `siliconflow`, `openrouter`, or a custom OpenAI-compatible endpoint. Ask the user to provide the matching API key, or let them paste it into the user config directory's `.env` themselves (`~/.agent-vision/.env`, or `%USERPROFILE%\.agent-vision\.env` on Windows).
+3. Run the guided setup:
 
    ```bash
    agent-vision setup
    ```
 
    The wizard detects the installed agent, writes `.env` (and `providers.json` for custom providers) into the user config directory, starts the local runtime, and verifies the vision API. For Codex it backs up and only rewrites the active provider's `base_url` (never `wire_api`, model or keys); when Codex loads its model list from a local model catalog (e.g. cc-switch), it also declares image input for the active model so the client accepts pasted images (with a backup). For OpenCode it adds the OpenAI-compatible provider automatically.
-5. Verify the pipeline explicitly:
+4. Verify the pipeline explicitly:
 
    ```bash
    agent-vision status
@@ -47,15 +72,15 @@ Set up agent-vision for me. Read AGENT_INSTALL.md and follow it end to end. Use 
    On Windows, recommend running `agent-vision autostart --enable` once so the proxy starts automatically at login and a watchdog (default 10s) restarts it if 19100 is not listening. Tune with `--watchdog-interval 2-30`, or use `--watchdog-interval 0` for plain start.
    If `agent-vision` is not on PATH, use the stable launcher `%USERPROFILE%\.agent-vision\agent-vision.cmd` (created by setup) or `python -m agent_vision`; do not rely on PATH. Start the proxy with an elevated or normal terminal (`agent-vision start`) so the process is not tied to the Codex session. If the sandbox blocks user config writes, setup writes `agent-vision-finalize.cmd/.ps1` next to the current directory; ask the user to run one of them to finish. After setup, run `agent-vision doctor`; the deployment is complete only when all checks pass.
 
-6. If the user later asks to roll back an auto-patched agent:
+5. If the user later asks to roll back an auto-patched agent:
 
    ```bash
    agent-vision rollback codex
    agent-vision rollback opencode
    ```
 
-7. For Claude Code and Cursor, `agent-vision setup --agent claude --dry-run` and `agent-vision setup --agent cursor --dry-run` print the official manual steps. Do not invent config keys for these agents.
-8. Never commit or upload `.env`. Keep API keys in the user config directory, not in the repository. Report the chosen provider, the verification result, and any files that were backed up.
+6. For Claude Code and Cursor, `agent-vision setup --agent claude --dry-run` and `agent-vision setup --agent cursor --dry-run` print the official manual steps. Do not invent config keys for these agents.
+7. Never commit or upload `.env`. Keep API keys in the user config directory, not in the repository. Report the chosen provider, the verification result, and any files that were backed up.
 
 ## Troubleshooting: image not visible
 

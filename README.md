@@ -83,6 +83,26 @@ pip install .
 agent-vision setup
 ```
 
+If GitHub is unreachable (common on some networks), PyPI is the right fallback. Every release is published to PyPI at the same time as the GitHub tag (currently 1.2.1). In China you can use the Tsinghua mirror, though it can lag official PyPI for a few hours to a few days:
+
+```bash
+pip install codex-deepseek-vision
+# or
+pip install codex-deepseek-vision -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+You can also paste this into your agent; it does not require GitHub:
+
+```text
+Install codex-deepseek-vision with pip (use the Tsinghua mirror if PyPI is slow), then run:
+agent-vision setup --agent codex --provider custom --base-url https://www.rightapi.ai/codex/v1 --model gpt-5.6-sol --api-key <KEY> --yes
+agent-vision autostart --enable
+agent-vision doctor
+Tell me when I need to restart Codex.
+```
+
+For the free Zhipu provider, replace the custom provider flags with `--provider free --yes`.
+
 The wizard detects your agent, lets you pick Free / Quality / Custom vision, writes the config with a backup, starts the local runtime, verifies the connection, and prints the final health status. For Codex it only rewrites the active provider's `base_url`; `model_provider`, `model`, `wire_api` and API keys are left untouched.
 
 You can also paste this into your agent and let it do the work:

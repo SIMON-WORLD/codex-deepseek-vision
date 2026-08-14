@@ -23,29 +23,54 @@
 - RightAPI：`base_url=https://www.rightapi.ai/codex/v1`，可用模型如 `gpt-5.6-sol`、`gpt-5.5`、`gpt-5.4-mini`（个别模型名对某些 Key 返回 503，需以 `agent-vision status --test` 实测为准）。
 - 其他 OpenAI 兼容接口：按服务商文档提供 `base_url` 与视觉模型名即可。
 
+## 访问不了 GitHub 怎么办
+
+- 直接走 PyPI：每次发版都会同步发布到 PyPI（当前最新 1.2.1），不访问 GitHub 也能安装。国内访问官方 PyPI 慢时，可临时加清华镜像，但镜像同步有时滞后几小时到几天，装到旧版本就等镜像同步或换官方源。
+
+  ```bash
+  pip install codex-deepseek-vision
+  # 或
+  pip install codex-deepseek-vision -i https://pypi.tuna.tsinghua.edu.cn/simple
+  ```
+
+- 已装好 Python 的普通用户也可以让 Agent 直接安装并配置，不需要打开 GitHub。把下面这句话发给 Agent（换成你的服务商和 Key）：
+
+  ```text
+  帮我用 pip 安装 codex-deepseek-vision（官方 PyPI 慢就用清华镜像），然后执行：
+  agent-vision setup --agent codex --provider custom --base-url https://www.rightapi.ai/codex/v1 --model gpt-5.6-sol --api-key <你的Key> --yes
+  agent-vision autostart --enable
+  agent-vision doctor
+  全部通过后提醒我重启 Codex。
+  ```
+
+  默认免费智谱时，把 `--provider custom --base-url ... --model ... --api-key ...` 换成 `--provider free --yes` 即可。
+- 只有想用 GitHub 上还没发版的最新代码时，才必须访问 GitHub。
+
 ## Agent 执行清单
 
-1. 从 PyPI 安装（最简单）；如果 PyPI 不可达，再克隆仓库从源码安装：
+1. 从 PyPI 安装（最简单，推荐）；如果 PyPI 不可达，再克隆仓库从源码安装：
 
    ```bash
    pip install codex-deepseek-vision
+   # 或
+   pip install codex-deepseek-vision -i https://pypi.tuna.tsinghua.edu.cn/simple
    # 或
    git clone https://github.com/SIMON-WORLD/codex-deepseek-vision.git
    cd codex-deepseek-vision
    pip install .
    ```
 
-   除非下面步骤明确要求修改 Agent 配置，否则所有写入都留在项目目录内。
+  除非下面步骤明确要求修改 Agent 配置，否则所有写入都留在项目目录内。
 
-3. 询问用户选择视觉服务商：`zhipu`（免费）、`dashscope`、`openai`、`gemini`、`groq`、`siliconflow`、`openrouter`，或自定义 OpenAI 兼容接口。请用户提供对应的 API Key，或让用户自己粘贴到用户配置目录的 `.env`（`~/.agent-vision/.env`，Windows 为 `%USERPROFILE%\.agent-vision\.env`）。
-4. 运行引导式配置：
+2. 询问用户选择视觉服务商：`zhipu`（免费）、`dashscope`、`openai`、`gemini`、`groq`、`siliconflow`、`openrouter`，或自定义 OpenAI 兼容接口。请用户提供对应的 API Key，或让用户自己粘贴到用户配置目录的 `.env`（`~/.agent-vision/.env`，Windows 为 `%USERPROFILE%\.agent-vision\.env`）。
+3. 运行引导式配置：
 
    ```bash
    agent-vision setup
    ```
 
    向导会自动检测已安装的 Agent，在用户配置目录写入 `.env`（自定义服务商还会写 `providers.json`），启动本地运行时并验证视觉 API。对 Codex 会先备份，且只改写当前活动 provider 的 `base_url`（绝不改 `wire_api`、模型或 Key）；若 Codex 通过本地模型目录（如 cc-switch）加载模型列表，还会为当前模型声明图片输入，客户端才会允许粘贴图片（同样带备份）。对 OpenCode 会自动添加 OpenAI 兼容 provider。
-5. 明确验证链路：
+4. 明确验证链路：
 
    ```bash
    agent-vision status
@@ -58,15 +83,15 @@
    Windows 用户建议执行一次 `agent-vision autostart --enable`，重启电脑后代理会自动启动并由看门狗守护（默认 10 秒检查一次，19100 未监听就自动拉起），避免出现 `stream disconnected`。需要调间隔用 `--watchdog-interval 2-30`，想退回纯启动用 `--watchdog-interval 0`。
    若 `agent-vision` 不在 PATH，使用 `%USERPROFILE%\.agent-vision\agent-vision.cmd`（setup 自动生成）或 `python -m agent_vision`；不要依赖系统 PATH。代理必须用提权或普通终端方式启动（`agent-vision start`），确保进程不挂在 Codex 会话下。若沙箱不允许写用户配置，setup 会在当前目录生成 `agent-vision-finalize.cmd/.ps1`，请让用户跑一次完成配置；完成后运行 `agent-vision doctor`，全绿才算部署完成。
 
-6. 如果用户之后要求回滚被自动修改的 Agent：
+5. 如果用户之后要求回滚被自动修改的 Agent：
 
    ```bash
    agent-vision rollback codex
    agent-vision rollback opencode
    ```
 
-7. 对 Claude Code 和 Cursor，执行 `agent-vision setup --agent claude --dry-run` 与 `agent-vision setup --agent cursor --dry-run` 会打印官方手动步骤。不要为这两个 Agent 编造配置键。
-8. 绝不提交或上传 `.env`。API Key 只放在用户配置目录，不要放进仓库。最后向用户汇报：选择的服务商、验证结果、备份了哪些文件。
+6. 对 Claude Code 和 Cursor，执行 `agent-vision setup --agent claude --dry-run` 与 `agent-vision setup --agent cursor --dry-run` 会打印官方手动步骤。不要为这两个 Agent 编造配置键。
+7. 绝不提交或上传 `.env`。API Key 只放在用户配置目录，不要放进仓库。最后向用户汇报：选择的服务商、验证结果、备份了哪些文件。
 
 ## 看图失败怎么办
 
