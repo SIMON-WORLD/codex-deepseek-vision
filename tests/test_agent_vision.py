@@ -104,6 +104,84 @@ class RewriteTests(unittest.TestCase):
         self.assertEqual(new_body, body)
 
 
+class SanitizeToolsTests(unittest.TestCase):
+    def test_null_parameters_replaced(self):
+        payload = {
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {"name": "automation_update", "parameters": None},
+                }
+            ]
+        }
+        changed = vb.sanitize_tools(payload)
+        self.assertTrue(changed)
+        self.assertEqual(
+            payload["tools"][0]["function"]["parameters"],
+            {"type": "object", "properties": {}},
+        )
+
+    def test_missing_type_replaced(self):
+        payload = {
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "automation_update",
+                        "parameters": {"properties": {"id": {"type": "string"}}},
+                    },
+                }
+            ]
+        }
+        changed = vb.sanitize_tools(payload)
+        self.assertTrue(changed)
+        self.assertEqual(
+            payload["tools"][0]["function"]["parameters"],
+            {"type": "object", "properties": {}},
+        )
+
+    def test_valid_schema_unchanged(self):
+        tool = {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+            },
+        }
+        payload = {"tools": [tool]}
+        changed = vb.sanitize_tools(payload)
+        self.assertFalse(changed)
+        self.assertEqual(payload["tools"][0], tool)
+
+    def test_no_tools_unchanged(self):
+        payload = {"messages": [{"role": "user", "content": "hi"}]}
+        changed = vb.sanitize_tools(payload)
+        self.assertFalse(changed)
+        self.assertEqual(payload, {"messages": [{"role": "user", "content": "hi"}]})
+
+    def test_rewrite_body_reserializes_when_tools_cleaned(self):
+        body = json.dumps(
+            {
+                "model": "deepseek-v4-flash",
+                "messages": [{"role": "user", "content": "hi"}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {"name": "automation_update", "parameters": None},
+                    }
+                ],
+            }
+        ).encode("utf-8")
+        new_body, replaced = vb.rewrite_body(body)
+        self.assertEqual(replaced, 0)
+        payload = json.loads(new_body.decode("utf-8"))
+        self.assertEqual(
+            payload["tools"][0]["function"]["parameters"],
+            {"type": "object", "properties": {}},
+        )
+        self.assertNotEqual(new_body, body)
+
+
 class CacheTests(unittest.TestCase):
     def test_same_image_and_prompt_cached(self):
         vb._CACHE.clear()

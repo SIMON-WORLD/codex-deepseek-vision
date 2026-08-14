@@ -926,6 +926,33 @@ class _Rewrite:
         return out
 
 
+def sanitize_tools(payload: dict[str, object]) -> bool:
+    """Normalize tool schemas that strict upstreams like DeepSeek reject.
+
+    Codex desktop injects built-in tools (e.g. automation_update) whose
+    parameters schema is null or uses a root oneOf without a JSON Schema
+    ``type``. DeepSeek rejects the whole request with HTTP 400. Replace such
+    schemas with a minimal valid object schema so the request can proceed.
+    """
+    tools = payload.get("tools")
+    if not isinstance(tools, list):
+        return False
+    changed = False
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        function_def = tool.get("function")
+        target = function_def if isinstance(function_def, dict) else tool
+        params = target.get("parameters")
+        if params is None:
+            target["parameters"] = {"type": "object", "properties": {}}
+            changed = True
+        elif isinstance(params, dict) and not params.get("type"):
+            target["parameters"] = {"type": "object", "properties": {}}
+            changed = True
+    return changed
+
+
 def rewrite_body(
     body: bytes,
     max_images: int = MAX_IMAGES_PER_REQUEST,
@@ -940,6 +967,7 @@ def rewrite_body(
         return body, 0
     if not isinstance(payload, dict):
         return body, 0
+    tools_changed = sanitize_tools(payload)
     rewrite = _Rewrite(max_images=max_images, model=model, base_url=base_url, log=log)
     for item in payload.get("input") or []:
         if not isinstance(item, dict):
@@ -951,7 +979,7 @@ def rewrite_body(
     for message in payload.get("messages") or []:
         if isinstance(message, dict) and isinstance(message.get("content"), list):
             message["content"] = rewrite.rewrite_content(message["content"], chat=True)
-    if rewrite.replaced == 0 and not rewrite.modified:
+    if rewrite.replaced == 0 and not rewrite.modified and not tools_changed:
         return body, 0
     return json.dumps(payload, ensure_ascii=False).encode("utf-8"), rewrite.replaced
 
