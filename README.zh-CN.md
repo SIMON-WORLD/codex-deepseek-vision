@@ -136,6 +136,20 @@ agent-vision rollback opencode
 
 每次自动修改前都会先生成带时间戳的备份，`rollback` 会完整恢复。
 
+### 卸载与彻底清理
+
+在 PowerShell 中依次执行。必须用 `&` 调用操作符和 `$env:USERPROFILE` 语法；`%USERPROFILE%` 只在 cmd 里有效：
+
+```powershell
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" rollback codex
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" stop
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" autostart --disable
+pip uninstall codex-deepseek-vision -y
+Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
+```
+
+顺序不能反：先回滚 Agent 配置、停代理、关自启，再卸载包，最后删除配置目录。如果已经先卸载了包，先重新安装（`pip install codex-deepseek-vision`）让 CLI/启动器命令可用，再按上面顺序清理。
+
 ## 配置
 
 `agent-vision setup` 会在用户配置目录里自动写入和管理 `.env`。手动配置时，把 `.env.example` 复制为 `~/.agent-vision/.env`（Windows：`%USERPROFILE%\.agent-vision\.env`）并填写视觉 API Key。智谱 Key 格式为 `{API Key ID}.{secret}`，不需要加引号；脚本会自动去掉值两侧的引号和空格。

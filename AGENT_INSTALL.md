@@ -82,6 +82,20 @@ Set up agent-vision for me. Read AGENT_INSTALL.md and follow it end to end. Use 
 6. For Claude Code and Cursor, `agent-vision setup --agent claude --dry-run` and `agent-vision setup --agent cursor --dry-run` print the official manual steps. Do not invent config keys for these agents.
 7. Never commit or upload `.env`. Keep API keys in the user config directory, not in the repository. Report the chosen provider, the verification result, and any files that were backed up.
 
+## Uninstall / clean removal
+
+Run these from PowerShell in this exact order. `&` and `$env:USERPROFILE` are PowerShell syntax; `%USERPROFILE%` only works in cmd:
+
+```powershell
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" rollback codex
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" stop
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" autostart --disable
+pip uninstall codex-deepseek-vision -y
+Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
+```
+
+Roll back the agent config, stop the proxy, and disable autostart before uninstalling the package. If the package was already uninstalled, reinstall it first so the CLI/launcher commands work, then run the cleanup above.
+
 ## Troubleshooting: image not visible
 
 - If you see `[Unsupported Image]` or `[image vision conversion failed ...]`: vision conversion failed or the client blocked the image; ask the user to re-paste, or run `agent-vision see <path>` instead.

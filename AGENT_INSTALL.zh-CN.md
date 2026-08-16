@@ -93,6 +93,20 @@
 6. 对 Claude Code 和 Cursor，执行 `agent-vision setup --agent claude --dry-run` 与 `agent-vision setup --agent cursor --dry-run` 会打印官方手动步骤。不要为这两个 Agent 编造配置键。
 7. 绝不提交或上传 `.env`。API Key 只放在用户配置目录，不要放进仓库。最后向用户汇报：选择的服务商、验证结果、备份了哪些文件。
 
+## 卸载与彻底清理
+
+在 PowerShell 中按以下顺序执行。必须用 `&` 调用操作符和 `$env:USERPROFILE` 语法；`%USERPROFILE%` 只在 cmd 里有效：
+
+```powershell
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" rollback codex
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" stop
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" autostart --disable
+pip uninstall codex-deepseek-vision -y
+Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
+```
+
+先回滚 Agent 配置、停代理、关自启，再卸载包，最后删除配置目录。如果已经先卸载了包，先重新安装（`pip install codex-deepseek-vision`）让 CLI/启动器命令可用，再按上面顺序清理。
+
 ## 看图失败怎么办
 
 - 若看到 `[Unsupported Image]` 或 `[image vision conversion failed ...]`：视觉转换失败或客户端限制，请让用户重新粘贴图片，或改用 `agent-vision see <图片路径>`。

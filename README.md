@@ -136,6 +136,20 @@ agent-vision rollback opencode
 
 Every auto-patch creates a timestamped backup before modifying anything, and `rollback` restores it.
 
+### Uninstall / clean removal
+
+Run these from PowerShell. The `&` call operator and `$env:USERPROFILE` syntax are required; `%USERPROFILE%` only works in cmd:
+
+```powershell
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" rollback codex
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" stop
+& "$env:USERPROFILE\.agent-vision\agent-vision.cmd" autostart --disable
+pip uninstall codex-deepseek-vision -y
+Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
+```
+
+Order matters: roll back the agent config, stop the proxy, and disable autostart first, then uninstall the package, then delete the config directory. If you already uninstalled the package, reinstall it first (`pip install codex-deepseek-vision`) so the CLI/launcher commands still work, then run the cleanup above.
+
 ## Configuration
 
 `agent-vision setup` writes and manages `.env` inside the user config directory. For manual configuration, copy `.env.example` to `~/.agent-vision/.env` (Windows: `%USERPROFILE%\.agent-vision\.env`) and fill in the vision API key. Zhipu keys use the `{API Key ID}.{secret}` format. Do not add quotes; the loader strips surrounding quotes and whitespace.
