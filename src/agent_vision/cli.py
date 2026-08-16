@@ -744,6 +744,8 @@ class _Rewrite:
         self.max_images = max_images
         self.model = model
         self.base_url = base_url
+        if hasattr(log, "write") and callable(log.write):
+            log = log.write
         self.log = log
         self.last_error: str | None = None
         self.modified = False

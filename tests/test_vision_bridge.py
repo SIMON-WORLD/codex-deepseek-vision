@@ -132,6 +132,21 @@ class RewriteTests(unittest.TestCase):
             vb.rewrite_body(body, log=lines.append)
         self.assertTrue(any("vision rewrite failed: boom" in line for line in lines))
 
+    def test_failure_writes_to_proxy_log_instance(self):
+        body = json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": [{"type": "image_url", "image_url": {"url": data_url()}}]}
+                ]
+            }
+        ).encode("utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            logger = vb._ProxyLog(Path(tmp) / "proxy.log")
+            with mock.patch.object(vb, "describe_bytes", side_effect=RuntimeError("boom")):
+                vb.rewrite_body(body, log=logger)
+            content = (Path(tmp) / "proxy.log").read_text(encoding="utf-8")
+        self.assertIn("vision rewrite failed: boom", content)
+
     def test_oversize_image_replaced_with_marker_without_api_call(self):
         with mock.patch.object(vb, "MAX_IMAGE_BYTES", 16):
             oversized = "data:image/png;base64," + base64.b64encode(b"x" * 32).decode("ascii")
