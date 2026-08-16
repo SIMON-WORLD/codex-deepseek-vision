@@ -90,11 +90,12 @@ Run these from PowerShell in this exact order. `&` and `$env:USERPROFILE` are Po
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" rollback codex
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" stop
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" autostart --disable
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'agent_vision' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 pip uninstall codex-deepseek-vision -y
 Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
 ```
 
-Roll back the agent config, stop the proxy, and disable autostart before uninstalling the package. If the package was already uninstalled, reinstall it first so the CLI/launcher commands work, then run the cleanup above.
+Roll back the agent config, stop the proxy, and disable autostart before uninstalling the package. `autostart --disable` only removes the login entry; terminate any running `agent_vision` python processes as well, because a running watchdog restarts the proxy. If the package was already uninstalled, reinstall it first so the CLI/launcher commands work, then run the cleanup above.
 
 ## Troubleshooting: image not visible
 

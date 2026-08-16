@@ -101,11 +101,12 @@
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" rollback codex
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" stop
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" autostart --disable
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'agent_vision' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 pip uninstall codex-deepseek-vision -y
 Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
 ```
 
-先回滚 Agent 配置、停代理、关自启，再卸载包，最后删除配置目录。如果已经先卸载了包，先重新安装（`pip install codex-deepseek-vision`）让 CLI/启动器命令可用，再按上面顺序清理。
+先回滚 Agent 配置、停代理、关自启。`autostart --disable` 只删除登录项，还要结束仍在运行的 `agent_vision` python 进程（看门狗若还在运行会继续把代理拉起），再卸载包，最后删除配置目录。如果已经先卸载了包，先重新安装（`pip install codex-deepseek-vision`）让 CLI/启动器命令可用，再按上面顺序清理。
 
 ## 看图失败怎么办
 

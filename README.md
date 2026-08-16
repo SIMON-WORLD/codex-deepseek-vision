@@ -144,11 +144,12 @@ Run these from PowerShell. The `&` call operator and `$env:USERPROFILE` syntax a
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" rollback codex
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" stop
 & "$env:USERPROFILE\.agent-vision\agent-vision.cmd" autostart --disable
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'agent_vision' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 pip uninstall codex-deepseek-vision -y
 Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
 ```
 
-Order matters: roll back the agent config, stop the proxy, and disable autostart first, then uninstall the package, then delete the config directory. If you already uninstalled the package, reinstall it first (`pip install codex-deepseek-vision`) so the CLI/launcher commands still work, then run the cleanup above.
+Order matters: roll back the agent config, stop the proxy, and disable autostart first. `autostart --disable` only removes the login entry, so also terminate any running `agent_vision` python processes (a running watchdog will otherwise restart the proxy), then uninstall the package, then delete the config directory. If you already uninstalled the package, reinstall it first (`pip install codex-deepseek-vision`) so the CLI/launcher commands still work, then run the cleanup above.
 
 ## Configuration
 
