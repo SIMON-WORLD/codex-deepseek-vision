@@ -182,6 +182,74 @@ class SanitizeToolsTests(unittest.TestCase):
         self.assertNotEqual(new_body, body)
 
 
+class NativeVisionPassthroughTests(unittest.TestCase):
+    def test_native_vision_model_detected(self):
+        self.assertTrue(vb._is_native_vision_model("deepseek-v4-flash-vision-exp"))
+
+    def test_text_models_not_native(self):
+        self.assertFalse(vb._is_native_vision_model("deepseek-v4-flash"))
+        self.assertFalse(vb._is_native_vision_model("deepseek-v4-pro"))
+
+    def test_native_vision_model_does_not_rewrite_image(self):
+        body = json.dumps(
+            {
+                "model": "deepseek-v4-flash-vision-exp",
+                "messages": [
+                    {"role": "user", "content": [{"type": "image_url", "image_url": {"url": data_url()}}]}
+                ],
+            }
+        ).encode("utf-8")
+        with mock.patch.object(vb, "describe_bytes", side_effect=AssertionError("must not convert")):
+            new_body, replaced = vb.rewrite_body(body)
+        self.assertEqual(replaced, 0)
+        self.assertEqual(new_body, body)
+
+    def test_text_model_rewrites_image(self):
+        body = json.dumps(
+            {
+                "model": "deepseek-v4-flash",
+                "messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": data_url()}}]}],
+            }
+        ).encode("utf-8")
+        with mock.patch.object(vb, "describe_bytes", return_value="ok"):
+            new_body, replaced = vb.rewrite_body(body)
+        self.assertEqual(replaced, 1)
+
+    def test_force_convert_overrides_passthrough(self):
+        body = json.dumps(
+            {
+                "model": "deepseek-v4-flash-vision-exp",
+                "messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": data_url()}}]}],
+            }
+        ).encode("utf-8")
+        with mock.patch.dict(os.environ, {"VISION_FORCE_CONVERT": "1"}):
+            with mock.patch.object(vb, "describe_bytes", return_value="forced"):
+                new_body, replaced = vb.rewrite_body(body)
+        self.assertEqual(replaced, 1)
+
+    def test_env_passthrough_models_extended(self):
+        with mock.patch.dict(os.environ, {"VISION_PASSTHROUGH_MODELS": "rightapi-vision,gpt-5.6-sol"}):
+            self.assertTrue(vb._is_native_vision_model("gpt-5.6-sol"))
+            self.assertTrue(vb._is_native_vision_model("rightapi-vision"))
+            self.assertFalse(vb._is_native_vision_model("deepseek-v4-flash"))
+
+    def test_passthrough_still_sanitizes_tools(self):
+        body = json.dumps(
+            {
+                "model": "deepseek-v4-flash-vision-exp",
+                "messages": [{"role": "user", "content": "hi"}],
+                "tools": [
+                    {"type": "function", "function": {"name": "automation_update", "parameters": None}}
+                ],
+            }
+        ).encode("utf-8")
+        with mock.patch.object(vb, "describe_bytes", side_effect=AssertionError("must not convert")):
+            new_body, replaced = vb.rewrite_body(body)
+        self.assertEqual(replaced, 0)
+        payload = json.loads(new_body.decode("utf-8"))
+        self.assertEqual(payload["tools"][0]["function"]["parameters"], {"type": "object", "properties": {}})
+
+
 class CacheTests(unittest.TestCase):
     def test_same_image_and_prompt_cached(self):
         vb._CACHE.clear()
@@ -515,6 +583,8 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(providers["zhipu"]["model"], "glm-4v-flash")
         self.assertIn("dashscope", providers)
         self.assertIn("openai", providers)
+        self.assertIn("deepseek", providers)
+        self.assertEqual(providers["deepseek"]["model"], "deepseek-v4-flash-vision-exp")
 
     def test_custom_providers_merge(self):
         tmp = Path(__file__).resolve().parent / "tmp-providers.json"

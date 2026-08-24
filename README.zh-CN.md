@@ -51,9 +51,16 @@ agent-vision 接受任意 OpenAI 兼容视觉 API。内置常见服务商预设�
 | [Groq](https://console.groq.com/) | Qwen 视觉模型 | 有免费计划 |
 | [硅基流动](https://cloud.siliconflow.cn/) | Qwen2.5-VL 系列 | 新用户免费额度 |
 | [OpenRouter](https://openrouter.ai/) | 免费和付费视觉模型 | 混合 |
+| [DeepSeek](https://api.deepseek.com/) | deepseek-v4-flash-vision-exp | 付费（官方识图） |
 | 自部署 vLLM / Ollama | 任意 VLM | 仅硬件成本 |
 
 点击服务商名称可直接打开官网/控制台创建 API Key。
+
+### DeepSeek 原生识图
+
+DeepSeek 已于 2026-08-21 上线实验性多模态模型 `deepseek-v4-flash-vision-exp`。agent-vision 已识别它：当请求模型是原生识图模型时，代理会放行原图，让模型直接看图片，而不是先转成文字。它同时也是内置视觉服务商（`--provider deepseek`），你可以保留 DeepSeek 纯文本主模型、仍用同一把 Key 识图。
+
+用 `VISION_PASSTHROUGH_MODELS`（逗号分隔）可添加更多原生识图模型；设 `VISION_FORCE_CONVERT=1` 则强制把图片转成文字。
 
 ## 安装
 

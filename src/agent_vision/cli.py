@@ -59,6 +59,14 @@ DEFAULT_VISION_MODEL = "glm-4v-flash"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGES_PER_REQUEST = 100
 VISION_BATCH_SIZE = 10
+NATIVE_VISION_MODELS: set[str] = {
+    "deepseek-v4-flash-vision-exp",
+}
+# Models in NATIVE_VISION_MODELS accept images natively. When the request model
+# is one of these, the proxy leaves image parts untouched so the upstream model
+# reasons over the real image instead of a text description. Override the set
+# with VISION_PASSTHROUGH_MODELS (comma-separated) or force conversion with
+# VISION_FORCE_CONVERT=1.
 REALTIME_UNSUPPORTED_PATHS = ("/v1/live", "/v1/realtime")
 REALTIME_UNSUPPORTED_MESSAGE = (
     "Realtime voice (/v1/live) is not supported by the configured upstream. "
@@ -128,6 +136,11 @@ PROVIDERS: dict[str, dict[str, str]] = {
         "base_url": "https://openrouter.ai/api/v1",
         "model": "qwen/qwen3-vl:free",
         "cost": "free-or-paid",
+    },
+    "deepseek": {
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash-vision-exp",
+        "cost": "paid",
     },
 }
 
@@ -955,6 +968,20 @@ def sanitize_tools(payload: dict[str, object]) -> bool:
     return changed
 
 
+def _is_native_vision_model(model: str | None) -> bool:
+    """Return True when the request model can see images and should pass through."""
+    if not model:
+        return False
+    if os.environ.get("VISION_FORCE_CONVERT", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    models = set(NATIVE_VISION_MODELS)
+    for extra in os.environ.get("VISION_PASSTHROUGH_MODELS", "").split(","):
+        extra = extra.strip()
+        if extra:
+            models.add(extra)
+    return model in models
+
+
 def rewrite_body(
     body: bytes,
     max_images: int = MAX_IMAGES_PER_REQUEST,
@@ -970,6 +997,11 @@ def rewrite_body(
     if not isinstance(payload, dict):
         return body, 0
     tools_changed = sanitize_tools(payload)
+    native_vision = _is_native_vision_model(payload.get("model"))
+    if native_vision:
+        if not tools_changed:
+            return body, 0
+        return json.dumps(payload, ensure_ascii=False).encode("utf-8"), 0
     rewrite = _Rewrite(max_images=max_images, model=model, base_url=base_url, log=log)
     for item in payload.get("input") or []:
         if not isinstance(item, dict):

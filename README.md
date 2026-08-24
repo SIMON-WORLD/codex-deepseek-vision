@@ -51,9 +51,16 @@ agent-vision accepts any OpenAI-compatible vision API. Built-in presets cover th
 | [Groq](https://console.groq.com/) | Qwen vision models | Free plan available |
 | [SiliconFlow](https://cloud.siliconflow.cn/) | Qwen2.5-VL series | Free quota for new users |
 | [OpenRouter](https://openrouter.ai/) | Free and paid vision models | Mixed |
+| [DeepSeek](https://api.deepseek.com/) | deepseek-v4-flash-vision-exp | Paid (official vision) |
 | Self-hosted vLLM / Ollama | Any VLM | Hardware only |
 
 Click a provider name to open its official sign-up/console page and create an API key.
+
+### DeepSeek native vision
+
+DeepSeek ships the experimental multimodal model `deepseek-v4-flash-vision-exp` (released 2026-08-21). agent-vision recognizes it: when the request model is a native vision model, the proxy leaves image parts untouched so the model reasons over the real image instead of a text description. It is also a built-in vision provider (`--provider deepseek`), letting you keep a text-only DeepSeek model and still see images with the same DeepSeek key.
+
+Use `VISION_PASSTHROUGH_MODELS` (comma-separated) to add more native-vision models, or set `VISION_FORCE_CONVERT=1` to always convert images to text.
 
 ## Install
 

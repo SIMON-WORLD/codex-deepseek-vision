@@ -108,6 +108,13 @@ Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
 
 先回滚 Agent 配置、停代理、关自启。`autostart --disable` 只删除登录项，还要结束仍在运行的 `agent_vision` python 进程（看门狗若还在运行会继续把代理拉起），再卸载包，最后删除配置目录。如果已经先卸载了包，先重新安装（`pip install codex-deepseek-vision`）让 CLI/启动器命令可用，再按上面顺序清理。
 
+## DeepSeek 原生识图
+
+DeepSeek 已于 2026-08-21 上线实验性模型 `deepseek-v4-flash-vision-exp`。agent-vision 现已：
+- 当请求模型是原生识图模型时，放行原图，让模型直接看图片（默认含 `deepseek-v4-flash-vision-exp`；用 `VISION_PASSTHROUGH_MODELS` 可扩充）。
+- 内置 `deepseek` 视觉服务商（`--provider deepseek`），保留 DeepSeek 纯文本主模型、用同一把 Key 识图。
+- 设 `VISION_FORCE_CONVERT=1` 可强制把图片转成文字，不走放行。
+
 ## 看图失败怎么办
 
 - 若看到 `[Unsupported Image]` 或 `[image vision conversion failed ...]`：视觉转换失败或客户端限制，请让用户重新粘贴图片，或改用 `agent-vision see <图片路径>`。

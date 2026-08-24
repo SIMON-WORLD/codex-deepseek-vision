@@ -97,6 +97,13 @@ Remove-Item -LiteralPath "$env:USERPROFILE\.agent-vision" -Recurse -Force
 
 Roll back the agent config, stop the proxy, and disable autostart before uninstalling the package. `autostart --disable` only removes the login entry; terminate any running `agent_vision` python processes as well, because a running watchdog restarts the proxy. If the package was already uninstalled, reinstall it first so the CLI/launcher commands work, then run the cleanup above.
 
+## DeepSeek native vision
+
+DeepSeek shipped the experimental `deepseek-v4-flash-vision-exp` model (2026-08-21). agent-vision now:
+- Passes images through untouched when the request model is a native vision model (default: `deepseek-v4-flash-vision-exp`; extend via `VISION_PASSTHROUGH_MODELS`), so the model sees the real image.
+- Offers `deepseek` as a built-in vision provider (`--provider deepseek`) so a text-only DeepSeek model can still see images with the same DeepSeek key.
+- Set `VISION_FORCE_CONVERT=1` to always rewrite images to text instead of passing them through.
+
 ## Troubleshooting: image not visible
 
 - If you see `[Unsupported Image]` or `[image vision conversion failed ...]`: vision conversion failed or the client blocked the image; ask the user to re-paste, or run `agent-vision see <path>` instead.
