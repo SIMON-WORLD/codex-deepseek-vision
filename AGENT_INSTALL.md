@@ -108,7 +108,7 @@ DeepSeek shipped the experimental `deepseek-v4-flash-vision-exp` model (2026-08-
 
 - If you see `[Unsupported Image]` or `[image vision conversion failed ...]`: vision conversion failed or the client blocked the image; ask the user to re-paste, or run `agent-vision see <path>` instead.
 - Failure reasons are logged to `~/.agent-vision/logs/proxy.log`; check this file first when debugging.
-- The built-in `view_image` tool result may be replaced with `[Unsupported Image]` by the current desktop client; pasted images are not affected.
+- The built-in `view_image` tool result may be replaced with `[Unsupported Image]` by the current desktop client. For a text-only model the client may only pass a file path (with "image content omitted") instead of the image bytes, so `agent-vision see <path>` or `agent-vision see --latest` is the reliable path.
 - If the user's voice chat fails (`404 /v1/live`, `Voice chat took too long to start`, ...): this is an expected limitation, not a proxy fault. Codex realtime voice uses OpenAI's GPT-Live channel, which DeepSeek does not provide; the proxy intercepts `/v1/live` and returns a clear message. Do not try to "fix" it by changing proxy or network settings; explain that text input should be used instead.
 - If Codex cannot chat after a reboot (`stream disconnected`), the local proxy is not running: run `agent-vision start`, or enable `agent-vision autostart --enable` so it starts at login.
 

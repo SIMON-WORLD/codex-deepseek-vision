@@ -378,7 +378,7 @@ class CliTests(unittest.TestCase):
             captured["prompt"] = prompt
             return "猫的图片"
 
-        with mock.patch.object(vb, "find_latest_pasted_image", return_value=("image/png", png_bytes())):
+        with mock.patch.object(vb, "find_latest_pasted_images", return_value=[("image/png", png_bytes())]):
             with mock.patch.object(vb, "describe_bytes", side_effect=fake_describe_bytes):
                 with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
                     code = vb.main(["see", "--latest", "-q", "什么"])
@@ -647,3 +647,43 @@ class ProviderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnhancementTests(unittest.TestCase):
+    def test_cache_get_treats_stale_as_miss(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(vb, "_DISK_CACHE_DIR", Path(tmp)), mock.patch.object(vb, "CACHE_TTL_SECONDS", 1):
+                path = vb._disk_cache_path("k")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps("old"), encoding="utf-8")
+                os.utime(path, (0, 0))
+                self.assertIsNone(vb._cache_get("k"))
+
+    def test_proxy_log_rotates_when_over_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            logger = vb._ProxyLog(Path(tmp) / "proxy.log")
+            with mock.patch.object(vb, "LOG_MAX_BYTES", 10):
+                logger.write("hello world")
+                logger.write("x" * 200)
+            self.assertTrue((Path(tmp) / "proxy.log.1").exists())
+
+    def test_should_enable_thinking(self):
+        self.assertTrue(vb._should_enable_thinking("glm-4v-flash"))
+        self.assertFalse(vb._should_enable_thinking("gpt-5.6-sol"))
+        with mock.patch.dict(os.environ, {"VISION_THINKING_MODELS": "5.6"}):
+            self.assertTrue(vb._should_enable_thinking("gpt-5.6-sol"))
+        with mock.patch.dict(os.environ, {"VISION_FORCE_DISABLE_THINKING": "1"}):
+            self.assertFalse(vb._should_enable_thinking("glm-4v-flash"))
+
+    def test_probe_models_returns_nonempty(self):
+        models = vb._probe_models()
+        self.assertGreaterEqual(len(models), 1)
+        self.assertIn("deepseek-v4-flash", models)
+
+    def test_ask_returns_empty_on_eof(self):
+        with mock.patch("builtins.input", side_effect=EOFError):
+            self.assertEqual(vb._ask("? "), "")
+
+    def test_image_url_from_part_accepts_http(self):
+        self.assertEqual(vb.image_url_from_part({"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}), "https://example.com/a.png")
+        self.assertEqual(vb.image_url_from_part({"type": "image_url", "image_url": {"url": data_url()}}), data_url())

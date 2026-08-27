@@ -119,7 +119,7 @@ DeepSeek 已于 2026-08-21 上线实验性模型 `deepseek-v4-flash-vision-exp`�
 
 - 若看到 `[Unsupported Image]` 或 `[image vision conversion failed ...]`：视觉转换失败或客户端限制，请让用户重新粘贴图片，或改用 `agent-vision see <图片路径>`。
 - 失败原因会写入 `~/.agent-vision/logs/proxy.log`，排查时先看这个文件。
-- `view_image` 工具结果在当前桌面版可能被替换为 `[Unsupported Image]`，这是客户端限制，粘贴图片不受影响。
+- `view_image` 工具结果在当前桌面版可能被替换为 `[Unsupported Image]`，这是客户端限制；若主模型为纯文本模型，桌面端可能只传文件路径并提示 "image content omitted" 而不是图片字节，此时请用 `agent-vision see <图片路径>` 或 `agent-vision see --latest` 兜底。
 - 用户点“语音聊天”报 `404 /v1/live`、`Voice chat took too long to start` 等：这是预期限制，不是代理故障。Codex 实时语音走 OpenAI GPT-Live 通道，DeepSeek 不提供；代理会拦截 `/v1/live` 并返回明确提示。不要尝试修改代理或网络来“修复”，直接说明请用文字输入。
 - 重启电脑后 Codex 无法对话（`stream disconnected`）：本地代理未启动，运行 `agent-vision start`，或先执行 `agent-vision autostart --enable` 让登录时自动拉起。
 

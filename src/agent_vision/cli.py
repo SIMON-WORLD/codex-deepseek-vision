@@ -57,6 +57,7 @@ ENV_FILE = config_home.env_file()
 DEFAULT_VISION_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_VISION_MODEL = "glm-4v-flash"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+LOG_MAX_BYTES = int(os.environ.get("VISION_LOG_MAX_BYTES", str(5 * 1024 * 1024)) or 0)
 MAX_IMAGES_PER_REQUEST = 100
 VISION_BATCH_SIZE = 10
 NATIVE_VISION_MODELS: set[str] = {
@@ -258,6 +259,23 @@ def data_url_from_bytes(mime: str, data: bytes) -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
+def _should_enable_thinking(model: str | None) -> bool:
+    """Whether to request thinking mode for a vision provider.
+
+    Default: enable for Zhipu GLM models (they need it); disable otherwise.
+    Override with VISION_THINKING_MODELS (comma-separated model substrings) and
+    VISION_FORCE_DISABLE_THINKING=1 to turn it off entirely.
+    """
+    if not model:
+        return False
+    if os.environ.get("VISION_FORCE_DISABLE_THINKING", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    extra = os.environ.get("VISION_THINKING_MODELS", "")
+    if any(token.strip() and token.strip().lower() in model.lower() for token in extra.split(",")):
+        return True
+    return "glm" in model.lower()
+
+
 def call_vision_model(
     *,
     mime: str,
@@ -290,7 +308,7 @@ def call_vision_model(
             }
         ],
     }
-    if "glm" in model.lower():
+    if _should_enable_thinking(model):
         payload["thinking"] = {"type": "enabled"}
     request = urllib.request.Request(
         url,
@@ -459,6 +477,8 @@ _CACHE: OrderedDict[str, str] = OrderedDict()
 _CACHE_MAX = 256
 _MEMORY_CACHE_LOCK = threading.Lock()
 _DISK_CACHE_DIR = config_home.agent_vision_home() / "cache"
+CACHE_TTL_SECONDS = int(os.environ.get("VISION_CACHE_TTL", str(30 * 24 * 3600)) or 0)
+_CACHE_SET_COUNTER = 0
 
 
 def _disk_cache_path(key: str) -> Path:
@@ -479,6 +499,9 @@ def _cache_get(key: str) -> str | None:
     path = _disk_cache_path(key)
     try:
         if path.exists():
+            if CACHE_TTL_SECONDS > 0 and (time.time() - path.stat().st_mtime) > CACHE_TTL_SECONDS:
+                path.unlink(missing_ok=True)
+                return None
             value = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(value, str):
                 with _MEMORY_CACHE_LOCK:
@@ -500,6 +523,7 @@ def _cache_set(key: str, value: str) -> None:
             _CACHE.popitem(last=False)
     try:
         _DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _prune_disk_cache()
         path = _disk_cache_path(key)
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
@@ -572,12 +596,31 @@ def image_url_from_part(part: object) -> str | None:
     url = part.get("image_url") or part.get("url") or ""
     if isinstance(url, dict):
         url = url.get("url") or ""
-    if not isinstance(url, str) or not url.startswith("data:image/"):
+    if not isinstance(url, str):
+        return None
+    if not (url.startswith("data:image/") or url.startswith(("http://", "https://"))):
         return None
     if ptype in ("image_url", "input_image") or isinstance(part.get("image_url"), str):
         return url
     return None
 
+
+
+def _prune_disk_cache() -> None:
+    """Best-effort removal of stale disk cache entries; called on writes."""
+    global _CACHE_SET_COUNTER
+    _CACHE_SET_COUNTER += 1
+    if _CACHE_SET_COUNTER % 64 != 0 or CACHE_TTL_SECONDS <= 0:
+        return
+    try:
+        for path in _DISK_CACHE_DIR.glob("*.json"):
+            try:
+                if (time.time() - path.stat().st_mtime) > CACHE_TTL_SECONDS:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def load_url_image(url: str) -> tuple[str, bytes]:
@@ -646,32 +689,39 @@ def describe_source(
     )
 
 
+def _collect_input_images(obj: object) -> list[tuple[str, bytes]]:
+    """Collect all valid input_image data URLs from a decoded JSON value."""
+    out: list[tuple[str, bytes]] = []
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            if value.get("type") == "input_image":
+                url = value.get("image_url")
+                if isinstance(url, dict):
+                    url = url.get("url")
+                match = DATA_URL_RE.match(url) if isinstance(url, str) else None
+                if match:
+                    mime, b64 = match.group(1), match.group(2)
+                    try:
+                        data = base64.b64decode(b64)
+                    except Exception:
+                        data = b""
+                    if data and len(data) <= MAX_IMAGE_BYTES:
+                        out.append((mime, data))
+            for sub in value.values():
+                walk(sub)
+        elif isinstance(value, list):
+            for sub in value:
+                walk(sub)
+
+    walk(obj)
+    return out
+
+
 def _find_input_image(obj: object) -> tuple[str, bytes] | None:
-    """Find an input_image part with a data URL in a decoded JSON value."""
-    if isinstance(obj, dict):
-        if obj.get("type") == "input_image":
-            url = obj.get("image_url")
-            if isinstance(url, dict):
-                url = url.get("url")
-            match = DATA_URL_RE.match(url) if isinstance(url, str) else None
-            if match:
-                mime, b64 = match.group(1), match.group(2)
-                try:
-                    data = base64.b64decode(b64)
-                except Exception:
-                    data = b""
-                if data and len(data) <= MAX_IMAGE_BYTES:
-                    return mime, data
-        for value in obj.values():
-            found = _find_input_image(value)
-            if found:
-                return found
-    elif isinstance(obj, list):
-        for value in obj:
-            found = _find_input_image(value)
-            if found:
-                return found
-    return None
+    """Return the first input_image part with a data URL in a decoded JSON value."""
+    images = _collect_input_images(obj)
+    return images[0] if images else None
 
 
 def _safe_mtime(path: Path) -> float:
@@ -705,6 +755,20 @@ def find_latest_pasted_image(
 ) -> tuple[str, bytes]:
     """Return (mime, bytes) of the most recent image pasted into Codex.
 
+    Convenience wrapper for :func:`find_latest_pasted_images` that keeps the
+    original single-image contract (newest image wins).
+    """
+    images = find_latest_pasted_images(session_dir=session_dir, max_files=max_files, max_images=1)
+    return images[0]
+
+
+def find_latest_pasted_images(
+    session_dir: Path | None = None,
+    max_files: int = 20,
+    max_images: int = 20,
+) -> list[tuple[str, bytes]]:
+    """Return recent pasted images as (mime, bytes), newest first.
+
     Codex stores pasted images as ``input_image`` parts with base64 data URLs
     in ``~/.codex/sessions/**/*.jsonl`` (or ``$CODEX_HOME/sessions``). Only the
     newest ``max_files`` session files are scanned; each file is read backwards
@@ -719,6 +783,7 @@ def find_latest_pasted_image(
     except OSError:
         candidates = []
     files = sorted(candidates, key=_safe_mtime, reverse=True)[: max_files]
+    collected: list[tuple[str, bytes]] = []
     for file in files:
         try:
             with file.open("rb") as handle:
@@ -729,12 +794,18 @@ def find_latest_pasted_image(
                         obj = json.loads(line)
                     except ValueError:
                         continue
-                    found = _find_input_image(obj)
-                    if found:
-                        return found
+                    for item in _collect_input_images(obj):
+                        if len(collected) < max_images:
+                            collected.append(item)
+                    if len(collected) >= max_images:
+                        break
         except OSError:
             continue
-    raise ValueError(f"no pasted image found in recent Codex sessions under {root}")
+        if len(collected) >= max_images:
+            break
+    if not collected:
+        raise ValueError(f"no pasted image found in recent Codex sessions under {root}")
+    return collected
 
 
 def _focus_text(content: list[object]) -> str:
@@ -768,15 +839,22 @@ class _Rewrite:
         self.last_error = error
         return description
 
-    def _image_meta(self, data_url: str, focus: str) -> tuple[dict[str, object] | None, str]:
-        match = DATA_URL_RE.match(data_url)
-        if not match:
-            return None, "unsupported image data URL format"
-        mime, b64 = match.group(1), match.group(2)
-        try:
-            data = base64.b64decode(b64)
-        except Exception as error:
-            return None, f"invalid base64 image data: {error}"
+    def _image_meta(self, image_ref: str, focus: str) -> tuple[dict[str, object] | None, str]:
+        if image_ref.startswith(("http://", "https://")):
+            try:
+                mime, data = load_url_image(image_ref)
+            except ValueError as error:
+                return None, str(error)
+            b64 = base64.b64encode(data).decode("ascii")
+        else:
+            match = DATA_URL_RE.match(image_ref)
+            if not match:
+                return None, "unsupported image data URL format"
+            mime, b64 = match.group(1), match.group(2)
+            try:
+                data = base64.b64decode(b64)
+            except Exception as error:
+                return None, f"invalid base64 image data: {error}"
         if not data:
             return None, "empty image data"
         if len(data) > MAX_IMAGE_BYTES:
@@ -1030,10 +1108,22 @@ class _ProxyLog:
         line = f"{datetime.now().isoformat(timespec='seconds')} {message}\n"
         with self.lock:
             try:
+                self._rotate_if_needed()
                 with open(self.path, "a", encoding="utf-8") as handle:
                     handle.write(line)
             except OSError:
                 pass
+
+    def _rotate_if_needed(self) -> None:
+        # Rotate when the log exceeds the limit (default 5 MiB), keeping one .1 backup.
+        limit = LOG_MAX_BYTES
+        try:
+            if self.path.exists() and self.path.stat().st_size > limit:
+                backup = self.path.with_suffix(self.path.suffix + ".1")
+                backup.write_bytes(self.path.read_bytes())
+                self.path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _upstream_request(
@@ -1058,6 +1148,12 @@ def _upstream_request(
         try:
             conn.request(method, path, body=body, headers=headers)
             response = conn.getresponse()
+            if attempt < retries - 1 and getattr(response, "status", None) is not None and response.status >= 500:
+                last_error = RuntimeError(f"upstream returned {response.status}")
+                response.close()
+                conn.close()
+                time.sleep(0.5 * (attempt + 1))
+                continue
             return conn, response
         except Exception as error:
             last_error = error
@@ -1080,11 +1176,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def _forward(self) -> None:
-        length = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(length) if length else b""
+        if self.command.upper() in ("GET", "HEAD") and self.path.split("?", 1)[0].rstrip("/").endswith("/models"):
+            self._serve_models()
+            return
         if blocked_realtime_path(self.path):
             self._reject_realtime_voice()
             return
+        body = self._read_body()
         new_body, _ = (
             rewrite_body(
                 body,
@@ -1149,6 +1247,47 @@ class ProxyHandler(BaseHTTPRequestHandler):
             response.close()
             conn.close()
 
+    def _read_body(self) -> bytes:
+        transfer = (self.headers.get("Transfer-Encoding") or "").lower()
+        if "chunked" in transfer:
+            return self._read_chunked_body()
+        try:
+            size = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            return b""
+        return self.rfile.read(size) if size else b""
+
+    def _read_chunked_body(self) -> bytes:
+        data = b""
+        while True:
+            line = self.rfile.readline()
+            if not line:
+                break
+            line = line.strip().split(b";", 1)[0]
+            try:
+                size = int(line, 16)
+            except ValueError:
+                break
+            if size == 0:
+                self.rfile.readline()
+                break
+            data += self.rfile.read(size)
+            self.rfile.read(2)
+        return data
+
+    def _serve_models(self) -> None:
+        models = getattr(self.server, "models", None) or []
+        payload = {
+            "object": "list",
+            "data": [{"id": m, "object": "model", "owned_by": "deepseek"} for m in models],
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _reject_realtime_voice(self) -> None:
         logger = getattr(self.server, "logger", None)
         upstream = getattr(self.server, "upstream", "?")
@@ -1187,6 +1326,24 @@ class ProxyHandler(BaseHTTPRequestHandler):
             logger.write(line)
 
 
+def _probe_models() -> list[str]:
+    """Synthetic model list the proxy returns for GET /models."""
+    models: list[str] = []
+    try:
+        detection = make_codex_adapter().detect()
+        if detection.get("model"):
+            models.append(str(detection["model"]))
+    except Exception:
+        pass
+    vision_model = cfg("VISION_MODEL", DEFAULT_VISION_MODEL)
+    if vision_model and vision_model not in models:
+        models.append(vision_model)
+    for extra in ("deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp"):
+        if extra not in models:
+            models.append(extra)
+    return models or ["deepseek-v4-flash"]
+
+
 def run_proxy(
     listen: str,
     upstream: str,
@@ -1219,6 +1376,7 @@ def run_proxy(
     server.model = model
     server.base_url = base_url
     server.logger = logger
+    server.models = _probe_models()
     startup = (
         f"vision bridge proxy listening on {listen} -> {upstream}; "
         f"vision key configured: {key_ready}"
@@ -1244,28 +1402,29 @@ def cmd_see(args: argparse.Namespace) -> int:
         return 2
     prompt = args.question or TASK_PROMPTS.get(args.task or "describe", DEFAULT_DESCRIBE_PROMPT)
     if getattr(args, "latest", False):
-        label = "[latest pasted image]"
         try:
-            mime, data = find_latest_pasted_image()
+            images = find_latest_pasted_images()
         except (OSError, ValueError) as error:
-            print(f"failed {label}: {error}", file=sys.stderr)
+            print(f"failed [latest pasted image]: {error}", file=sys.stderr)
             return 1
-        try:
-            text = describe_bytes(
-                data,
-                mime,
-                prompt,
-                model=model,
-                api_key=args.api_key,
-                base_url=base_url,
-                use_cache=not args.no_cache,
-            )
-        except (OSError, ValueError, RuntimeError) as error:
-            print(f"failed {label}: {error}", file=sys.stderr)
-            return 1
-        print(f"===== {label} =====")
-        print((text or "").strip())
-        print()
+        for index, (mime, data) in enumerate(images, start=1):
+            label = f"[latest pasted image {index}/{len(images)}]" if len(images) > 1 else "[latest pasted image]"
+            try:
+                text = describe_bytes(
+                    data,
+                    mime,
+                    prompt,
+                    model=model,
+                    api_key=args.api_key,
+                    base_url=base_url,
+                    use_cache=not args.no_cache,
+                )
+            except (OSError, ValueError, RuntimeError) as error:
+                print(f"failed {label}: {error}", file=sys.stderr)
+                return 1
+            print(f"===== {label} =====")
+            print((text or "").strip())
+            print()
         return 0
     if not args.images:
         print("error: specify image paths/URLs or use --latest", file=sys.stderr)
