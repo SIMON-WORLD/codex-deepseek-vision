@@ -273,7 +273,7 @@ class StatusTests(unittest.TestCase):
             output = buffer.getvalue()
             self.assertIn("✓ Running", output)
             self.assertIn("✓ Codex connected", output)
-            self.assertIn("✓ Available", output)
+            self.assertIn("not tested", output)
             self.assertIn("Providers:", output)
             self.assertIn("Codex:", output)
 
@@ -329,6 +329,40 @@ class CatalogPatchTests(unittest.TestCase):
             adapter = make_adapter_with_catalog(tmp, text_only=False)
             detection = adapter.detect()
             self.assertTrue(detection["catalog_patched"])
+
+    def test_catalog_needs_patch_for_image_without_detail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = Path(tmp) / "cc-switch-model-catalog.json"
+            catalog.write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "deepseek-v4-flash-vision-exp",
+                                "input_modalities": ["text", "image"],
+                                "supports_image_detail_original": False,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(CodexAdapter._catalog_needs_patch(catalog, "deepseek-v4-flash-vision-exp"))
+
+    def test_render_catalog_patch_sets_detail_for_image_model(self):
+        data = {
+            "models": [
+                {
+                    "slug": "deepseek-v4-flash-vision-exp",
+                    "input_modalities": ["text", "image"],
+                    "supports_image_detail_original": False,
+                }
+            ]
+        }
+        patched = CodexAdapter.render_catalog_patch(data, "deepseek-v4-flash-vision-exp")
+        entry = patched["models"][0]
+        self.assertEqual(entry["input_modalities"], ["text", "image"])
+        self.assertTrue(entry["supports_image_detail_original"])
 
     def test_detect_skips_catalog_when_missing(self):
         with tempfile.TemporaryDirectory() as tmp:

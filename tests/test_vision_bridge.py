@@ -443,11 +443,12 @@ class CallVisionTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def test_see_prints_description(self):
-        path = str(Path(__file__).resolve().parent / "sample.png")
-        Path(path).write_bytes(png_bytes())
-        with mock.patch.object(vb, "describe_file", return_value="描述结果"):
-            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-                code = vb.main(["see", path, "-q", "什么"])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "sample.png")
+            Path(path).write_bytes(png_bytes())
+            with mock.patch.object(vb, "describe_file", return_value="描述结果"):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                    code = vb.main(["see", path, "-q", "什么"])
         self.assertEqual(code, 0)
         self.assertIn("描述结果", out.getvalue())
 
@@ -514,18 +515,19 @@ class ProviderTests(unittest.TestCase):
             vb.resolve_provider("not-a-provider", None, None)
 
     def test_see_uses_provider_preset(self):
-        path = str(Path(__file__).resolve().parent / "sample.png")
-        Path(path).write_bytes(png_bytes())
-        captured = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "sample.png")
+            Path(path).write_bytes(png_bytes())
+            captured = {}
 
-        def fake_describe_file(image, prompt, **kwargs):
-            captured["model"] = kwargs.get("model")
-            captured["base_url"] = kwargs.get("base_url")
-            return "ok"
+            def fake_describe_file(image, prompt, **kwargs):
+                captured["model"] = kwargs.get("model")
+                captured["base_url"] = kwargs.get("base_url")
+                return "ok"
 
-        with mock.patch.object(vb, "describe_file", side_effect=fake_describe_file):
-            with mock.patch("sys.stdout", new_callable=io.StringIO):
-                code = vb.main(["see", path, "--provider", "zhipu", "-q", "什么"])
+            with mock.patch.object(vb, "describe_file", side_effect=fake_describe_file):
+                with mock.patch("sys.stdout", new_callable=io.StringIO):
+                    code = vb.main(["see", path, "--provider", "zhipu", "-q", "什么"])
         self.assertEqual(code, 0)
         self.assertEqual(captured["model"], "glm-4v-flash")
         self.assertEqual(captured["base_url"], "https://open.bigmodel.cn/api/paas/v4")

@@ -1932,8 +1932,13 @@ def print_health(health: dict[str, object]) -> None:
 def cmd_status(args: argparse.Namespace) -> int:
     runtime = make_runtime_manager()
     adapter = make_codex_adapter()
-    vision = run_vision_test()
-    health = collect_health(runtime=runtime, adapter=adapter, vision_available=bool(vision.get("ok")))
+    do_test = bool(getattr(args, "test", False))
+    vision = run_vision_test() if do_test else {}
+    health = collect_health(
+        runtime=runtime,
+        adapter=adapter,
+        vision_available=(bool(vision.get("ok")) if do_test else None),
+    )
     print_health(health)
     print()
 
@@ -1991,7 +1996,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         if other.get("base_url"):
             print(f"    base_url={other.get('base_url')}")
 
-    if not vision.get("ok"):
+    if do_test and not vision.get("ok"):
         print(f"\nVision test failed: {vision.get('error')}", file=sys.stderr)
         return 1
     ok = bool(health["installed"]) and bool(health["runtime_running"]) and bool(health["provider_configured"])

@@ -147,7 +147,10 @@ class CodexAdapter(AgentAdapter):
             return False
         for entry in data.get("models", []):
             if entry.get("slug") == model:
-                return "image" not in (entry.get("input_modalities") or [])
+                modalities = entry.get("input_modalities") or []
+                if "image" not in modalities:
+                    return True
+                return not bool(entry.get("supports_image_detail_original"))
         return False
 
     @classmethod
