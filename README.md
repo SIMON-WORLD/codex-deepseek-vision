@@ -90,7 +90,7 @@ pip install .
 agent-vision setup
 ```
 
-If GitHub is unreachable (common on some networks), PyPI is the right fallback. Every release is published to PyPI at the same time as the GitHub tag (currently 1.2.1). In China you can use the Tsinghua mirror, though it can lag official PyPI for a few hours to a few days:
+If GitHub is unreachable (common on some networks), PyPI is the right fallback. Every release is published to PyPI at the same time as the GitHub tag (currently 1.2.5). In China you can use the Tsinghua mirror, though it can lag official PyPI for a few hours to a few days:
 
 ```bash
 pip install codex-deepseek-vision

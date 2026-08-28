@@ -90,7 +90,7 @@ pip install .
 agent-vision setup
 ```
 
-如果 GitHub 不可达（部分网络环境常见），PyPI 就是正确兜底：每次发版都会与 GitHub tag 同步发布到 PyPI（当前最新 1.2.1）。国内可用清华镜像，但镜像同步有时滞后几小时到几天，装到旧版本就换回官方源：
+如果 GitHub 不可达（部分网络环境常见），PyPI 就是正确兜底：每次发版都会与 GitHub tag 同步发布到 PyPI（当前最新 1.2.5）。国内可用清华镜像，但镜像同步有时滞后几小时到几天，装到旧版本就换回官方源：
 
 ```bash
 pip install codex-deepseek-vision

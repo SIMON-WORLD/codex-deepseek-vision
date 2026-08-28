@@ -14,7 +14,7 @@ Set up agent-vision for me. Read AGENT_INSTALL.md and follow it end to end. Use 
 
 ## If GitHub is unreachable
 
-- Install from PyPI instead. Every release is published to PyPI at the same time as the GitHub tag (currently 1.2.1), so GitHub is not required. If official PyPI is slow, use the Tsinghua mirror; note that mirrors can lag official PyPI by a few hours to a few days, so switch back if you get an older version.
+- Install from PyPI instead. Every release is published to PyPI at the same time as the GitHub tag (currently 1.2.5), so GitHub is not required. If official PyPI is slow, use the Tsinghua mirror; note that mirrors can lag official PyPI by a few hours to a few days, so switch back if you get an older version.
 
   ```bash
   pip install codex-deepseek-vision
