@@ -1060,6 +1060,48 @@ def _is_native_vision_model(model: str | None) -> bool:
     return model in models
 
 
+def normalize_call_outputs(payload: dict[str, object]) -> bool:
+    """Repair Responses items: function_call_output missing ``call_id``.
+
+    Codex desktop can emit a function_call_output without the call_id that links
+    it to a function_call (openai/codex #42067). DeepSeek's strict Responses
+    deserializer rejects the whole request with ``missing field call_id``. Attach
+    the call_id from the immediately preceding function_call, or drop a dangling
+    output that has no matching call.
+    """
+    items = payload.get("input")
+    if not isinstance(items, list):
+        return False
+    changed = False
+    last_call_cid: str | None = None
+    out: list[object] = []
+    for item in items:
+        if not isinstance(item, dict):
+            out.append(item)
+            continue
+        typ = item.get("type")
+        if typ == "function_call":
+            last_call_cid = item.get("call_id")
+            out.append(item)
+            continue
+        if typ == "function_call_output":
+            if not item.get("call_id"):
+                if last_call_cid:
+                    item["call_id"] = last_call_cid
+                    changed = True
+                else:
+                    changed = True
+                    continue
+            out.append(item)
+            last_call_cid = None
+            continue
+        last_call_cid = None
+        out.append(item)
+    if len(out) != len(items):
+        payload["input"] = out
+    return changed
+
+
 def rewrite_body(
     body: bytes,
     max_images: int = MAX_IMAGES_PER_REQUEST,
@@ -1075,9 +1117,10 @@ def rewrite_body(
     if not isinstance(payload, dict):
         return body, 0
     tools_changed = sanitize_tools(payload)
+    call_changed = normalize_call_outputs(payload)
     native_vision = _is_native_vision_model(payload.get("model"))
     if native_vision:
-        if not tools_changed:
+        if not tools_changed and not call_changed:
             return body, 0
         return json.dumps(payload, ensure_ascii=False).encode("utf-8"), 0
     rewrite = _Rewrite(max_images=max_images, model=model, base_url=base_url, log=log)
@@ -1091,7 +1134,7 @@ def rewrite_body(
     for message in payload.get("messages") or []:
         if isinstance(message, dict) and isinstance(message.get("content"), list):
             message["content"] = rewrite.rewrite_content(message["content"], chat=True)
-    if rewrite.replaced == 0 and not rewrite.modified and not tools_changed:
+    if rewrite.replaced == 0 and not rewrite.modified and not tools_changed and not call_changed:
         return body, 0
     return json.dumps(payload, ensure_ascii=False).encode("utf-8"), rewrite.replaced
 

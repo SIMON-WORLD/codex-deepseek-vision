@@ -687,3 +687,45 @@ class EnhancementTests(unittest.TestCase):
     def test_image_url_from_part_accepts_http(self):
         self.assertEqual(vb.image_url_from_part({"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}), "https://example.com/a.png")
         self.assertEqual(vb.image_url_from_part({"type": "image_url", "image_url": {"url": data_url()}}), data_url())
+
+
+class CallOutputNormalizeTests(unittest.TestCase):
+    def test_attach_call_id_from_preceding_call(self):
+        payload = {
+            "input": [
+                {"type": "function_call", "id": "fc1", "call_id": "call_1", "name": "f", "arguments": "{}"},
+                {"type": "function_call_output", "id": "fo1", "name": "f", "namespace": "", "output": [{"type": "output_text", "text": "ok"}], "internal_chat_message_metadata_passthrough": {}},
+            ]
+        }
+        changed = vb.normalize_call_outputs(payload)
+        self.assertTrue(changed)
+        self.assertEqual(payload["input"][1]["call_id"], "call_1")
+
+    def test_drop_dangling_output(self):
+        payload = {
+            "input": [
+                {"type": "function_call_output", "id": "fo1", "name": "f", "namespace": "", "output": [{"type": "output_text", "text": "ok"}]},
+            ]
+        }
+        changed = vb.normalize_call_outputs(payload)
+        self.assertTrue(changed)
+        self.assertEqual(payload["input"], [])
+
+    def test_output_with_existing_call_id_untouched(self):
+        payload = {"input": [{"type": "function_call_output", "id": "fo1", "call_id": "call_1", "output": [{"type": "output_text", "text": "ok"}]}]}
+        changed = vb.normalize_call_outputs(payload)
+        self.assertFalse(changed)
+        self.assertEqual(payload["input"][0]["call_id"], "call_1")
+
+    def test_rewrite_body_removes_dangling(self):
+        body = json.dumps(
+            {
+                "model": "deepseek-v4-flash-vision-exp",
+                "input": [{"type": "function_call_output", "id": "fo1", "name": "f", "output": [{"type": "output_text", "text": "ok"}]}],
+            }
+        ).encode("utf-8")
+        with mock.patch.object(vb, "describe_bytes", side_effect=AssertionError("must not convert")):
+            new_body, replaced = vb.rewrite_body(body)
+        self.assertEqual(replaced, 0)
+        payload = json.loads(new_body.decode("utf-8"))
+        self.assertEqual(payload["input"], [])

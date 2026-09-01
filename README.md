@@ -60,7 +60,7 @@ Click a provider name to open its official sign-up/console page and create an AP
 
 DeepSeek ships the experimental multimodal model `deepseek-v4-flash-vision-exp` (released 2026-08-21). agent-vision recognizes it: when the request model is a native vision model, the proxy leaves image parts untouched so the model reasons over the real image instead of a text description. It is also a built-in vision provider (`--provider deepseek`), letting you keep a text-only DeepSeek model and still see images with the same DeepSeek key.
 
-Use `VISION_PASSTHROUGH_MODELS` (comma-separated) to add more native-vision models, or set `VISION_FORCE_CONVERT=1` to always convert images to text.
+Use `VISION_PASSTHROUGH_MODELS` (comma-separated) to add more native-vision models, or set `VISION_FORCE_CONVERT=1` to always convert images to text.`n`nThe proxy also repairs `function_call_output` items missing `call_id` that some Codex builds emit, so strict Responses endpoints accept them.
 
 ## Install
 

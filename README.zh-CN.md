@@ -60,7 +60,7 @@ agent-vision 接受任意 OpenAI 兼容视觉 API。内置常见服务商预设�
 
 DeepSeek 已于 2026-08-21 上线实验性多模态模型 `deepseek-v4-flash-vision-exp`。agent-vision 已识别它：当请求模型是原生识图模型时，代理会放行原图，让模型直接看图片，而不是先转成文字。它同时也是内置视觉服务商（`--provider deepseek`），你可以保留 DeepSeek 纯文本主模型、仍用同一把 Key 识图。
 
-用 `VISION_PASSTHROUGH_MODELS`（逗号分隔）可添加更多原生识图模型；设 `VISION_FORCE_CONVERT=1` 则强制把图片转成文字。
+用 `VISION_PASSTHROUGH_MODELS`（逗号分隔）可添加更多原生识图模型；设 `VISION_FORCE_CONVERT=1` 则强制把图片转成文字。`n`n代理还会修复 Codex 某些版本发出的、缺失 `call_id` 的 `function_call_output`，让严格 Responses 接口能正常接收。
 
 ## 安装
 
