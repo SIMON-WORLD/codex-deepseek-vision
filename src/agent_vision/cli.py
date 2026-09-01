@@ -1130,6 +1130,25 @@ def normalize_call_outputs(payload: dict[str, object]) -> bool:
     return changed
 
 
+def _debug_input_summary(payload: dict[str, object]) -> str:
+    items = payload.get("input")
+    if not isinstance(items, list):
+        items = []
+    last_types = [x.get("type") if isinstance(x, dict) else "?" for x in items[-3:]]
+    instr = payload.get("instructions")
+    instr_len = len(instr) if isinstance(instr, str) else (-1 if instr is not None else 0)
+    has_user = any(isinstance(x, dict) and x.get("role") == "user" for x in items)
+    last_is_user = bool(items and isinstance(items[-1], dict) and items[-1].get("role") == "user")
+    return (f"debug: input_len={len(items)} last_types={last_types} has_user={has_user} "
+            f"last_is_user={last_is_user} instructions_len={instr_len}")
+
+
+def _maybe_debug_input(payload: dict[str, object], log: object) -> None:
+    if os.environ.get("VISION_DEBUG_INPUT", "").strip().lower() not in ("1", "true", "yes"):
+        return
+    writer = getattr(log, "write", log)
+    if callable(writer):
+        writer(_debug_input_summary(payload))
 def rewrite_body(
     body: bytes,
     max_images: int = MAX_IMAGES_PER_REQUEST,
@@ -1144,6 +1163,7 @@ def rewrite_body(
         return body, 0
     if not isinstance(payload, dict):
         return body, 0
+    _maybe_debug_input(payload, log)
     tools_changed = sanitize_tools(payload)
     native_vision = _is_native_vision_model(payload.get("model"))
     if native_vision:

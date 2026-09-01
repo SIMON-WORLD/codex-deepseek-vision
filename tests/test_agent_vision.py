@@ -739,3 +739,16 @@ class CallOutputNormalizeTests(unittest.TestCase):
         changed = vb.normalize_call_outputs(payload)
         self.assertTrue(changed)
         self.assertEqual(payload["input"][0]["output"], "ok\n[image]")
+
+    def test_debug_input_summary(self):
+        payload = {
+            "input": [
+                {"role": "user", "content": [{"type": "input_text", "text": "hi"}]},
+                {"type": "function_call", "id": "fc", "call_id": "c", "name": "f", "arguments": "{}"},
+            ],
+            "instructions": "x" * 11,
+        }
+        s = vb._debug_input_summary(payload)
+        self.assertIn("has_user=True", s)
+        self.assertIn("last_is_user=False", s)
+        self.assertIn("instructions_len=11", s)
