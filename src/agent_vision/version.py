@@ -1,3 +1,3 @@
 """Single source of truth for the package version."""
 
-VERSION = "1.2.6"
+VERSION = "1.2.7"

@@ -712,7 +712,7 @@ class CallOutputNormalizeTests(unittest.TestCase):
         self.assertEqual(payload["input"], [])
 
     def test_output_with_existing_call_id_untouched(self):
-        payload = {"input": [{"type": "function_call_output", "id": "fo1", "call_id": "call_1", "output": [{"type": "output_text", "text": "ok"}]}]}
+        payload = {"input": [{"type": "function_call_output", "id": "fo1", "call_id": "call_1", "output": "ok"}]}
         changed = vb.normalize_call_outputs(payload)
         self.assertFalse(changed)
         self.assertEqual(payload["input"][0]["call_id"], "call_1")
@@ -729,3 +729,13 @@ class CallOutputNormalizeTests(unittest.TestCase):
         self.assertEqual(replaced, 0)
         payload = json.loads(new_body.decode("utf-8"))
         self.assertEqual(payload["input"], [])
+
+    def test_output_list_flattened_to_string(self):
+        payload = {
+            "input": [
+                {"type": "function_call_output", "id": "fo1", "call_id": "call_1", "output": [{"type": "output_text", "text": "ok"}, {"type": "output_image", "image_url": ""}]},
+            ]
+        }
+        changed = vb.normalize_call_outputs(payload)
+        self.assertTrue(changed)
+        self.assertEqual(payload["input"][0]["output"], "ok\n[image]")

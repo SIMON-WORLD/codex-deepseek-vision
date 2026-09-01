@@ -98,8 +98,8 @@ class RewriteTests(unittest.TestCase):
         self.assertEqual(replaced, 1)
         payload = json.loads(new_body.decode("utf-8"))
         out = payload["input"][0]["output"]
-        self.assertEqual(out[0]["type"], "input_text")
-        self.assertIn("一张示意图", out[0]["text"])
+        self.assertIsInstance(out, str)
+        self.assertIn("一张示意图", out)
         self.assertNotIn("image_url", json.dumps(payload))
 
     def test_fail_closed_when_vision_fails(self):

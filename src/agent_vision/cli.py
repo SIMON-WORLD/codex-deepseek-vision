@@ -1060,6 +1060,32 @@ def _is_native_vision_model(model: str | None) -> bool:
     return model in models
 
 
+def _normalize_function_output(item: dict[str, object]) -> bool:
+    """Make ``function_call_output.output`` acceptable to strict deserializers."""
+    out = item.get("output")
+    if isinstance(out, str):
+        return False
+    if isinstance(out, list):
+        parts: list[str] = []
+        for part in out:
+            if isinstance(part, dict):
+                ptype = part.get("type")
+                if ptype in ("output_text", "input_text") and isinstance(part.get("text"), str):
+                    parts.append(part["text"])
+                elif ptype in ("output_image", "input_image"):
+                    parts.append("[image]")
+                elif isinstance(part.get("text"), str):
+                    parts.append(part["text"])
+                else:
+                    parts.append("[output]")
+            elif isinstance(part, str):
+                parts.append(part)
+        item["output"] = "\n".join(parts)
+        return True
+    item["output"] = ""
+    return True
+
+
 def normalize_call_outputs(payload: dict[str, object]) -> bool:
     """Repair Responses items: function_call_output missing ``call_id``.
 
@@ -1092,6 +1118,8 @@ def normalize_call_outputs(payload: dict[str, object]) -> bool:
                 else:
                     changed = True
                     continue
+            if _normalize_function_output(item):
+                changed = True
             out.append(item)
             last_call_cid = None
             continue
@@ -1117,9 +1145,9 @@ def rewrite_body(
     if not isinstance(payload, dict):
         return body, 0
     tools_changed = sanitize_tools(payload)
-    call_changed = normalize_call_outputs(payload)
     native_vision = _is_native_vision_model(payload.get("model"))
     if native_vision:
+        call_changed = normalize_call_outputs(payload)
         if not tools_changed and not call_changed:
             return body, 0
         return json.dumps(payload, ensure_ascii=False).encode("utf-8"), 0
@@ -1134,6 +1162,7 @@ def rewrite_body(
     for message in payload.get("messages") or []:
         if isinstance(message, dict) and isinstance(message.get("content"), list):
             message["content"] = rewrite.rewrite_content(message["content"], chat=True)
+    call_changed = normalize_call_outputs(payload)
     if rewrite.replaced == 0 and not rewrite.modified and not tools_changed and not call_changed:
         return body, 0
     return json.dumps(payload, ensure_ascii=False).encode("utf-8"), rewrite.replaced
